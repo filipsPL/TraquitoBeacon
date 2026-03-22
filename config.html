@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modified !!! Traquito Jetpack Configurator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; }
+
+  header { background: #16213e; padding: 12px 20px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #0f3460; }
+  header h1 { font-size: 1rem; color: #e94560; letter-spacing: 2px; text-transform: uppercase; }
+  #statusBadge { padding: 3px 10px; border-radius: 3px; font-size: 0.75rem; background: #333; color: #888; }
+  #statusBadge.connected { background: #1a4731; color: #4caf82; }
+  #statusBadge.error { background: #4a1a1a; color: #e94560; }
+
+  main { display: flex; flex: 1; overflow: hidden; }
+
+  /* LEFT PANEL */
+  .panel { width: 340px; min-width: 280px; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; overflow-y: auto; padding: 16px; gap: 16px; }
+
+  .card { background: #0f3460; border-radius: 6px; padding: 14px; }
+  .card h2 { font-size: 0.7rem; color: #e94560; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; }
+
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 0.7rem; color: #888; margin-bottom: 4px; }
+  .field input { width: 100%; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 6px 8px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; }
+  .field input:focus { outline: none; border-color: #e94560; }
+  .field input.ok { border-color: #4caf82; }
+  .field input.err { border-color: #e94560; }
+
+  button { background: #e94560; color: white; border: none; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 0.8rem; width: 100%; margin-top: 4px; }
+  button:hover { background: #c73652; }
+  button:disabled { background: #444; color: #666; cursor: default; }
+  button.secondary { background: #0f3460; border: 1px solid #e94560; color: #e94560; }
+  button.secondary:hover { background: #1a4070; }
+
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; margin-top: 0; }
+
+  #callsignStatus { font-size: 0.7rem; margin-top: 4px; }
+
+  /* STATUS INDICATORS */
+  .indicators { display: flex; gap: 8px; flex-wrap: wrap; }
+  .indicator { flex: 1; min-width: 80px; background: #1a1a2e; border-radius: 4px; padding: 8px; text-align: center; }
+  .indicator .val { font-size: 1.1rem; color: #4caf82; }
+  .indicator .lbl { font-size: 0.65rem; color: #888; margin-top: 2px; }
+
+  /* RIGHT PANEL: LOG */
+  .log-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .log-toolbar { background: #16213e; padding: 8px 14px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #0f3460; }
+  .log-toolbar span { font-size: 0.75rem; color: #888; margin-right: auto; }
+  .log-toolbar button { width: auto; margin: 0; padding: 4px 10px; font-size: 0.75rem; }
+
+  /* filter checkboxes */
+  .filter-group { display: flex; gap: 10px; flex-wrap: wrap; }
+  .filter-group label { font-size: 0.72rem; color: #aaa; display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+  .filter-group input[type=checkbox] { accent-color: #e94560; }
+
+  #log { flex: 1; overflow-y: auto; padding: 10px 14px; font-size: 0.78rem; line-height: 1.55; }
+  .log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+  .log-line.GPS_FIX_TIME { color: #7ec8e3; }
+  .log-line.GPS_FIX_2D   { color: #7ec8e3; }
+  .log-line.GPS_FIX_3D   { color: #4caf82; }
+  .log-line.TEMP         { color: #f0c040; }
+  .log-line.TX           { color: #ff9f43; font-weight: bold; }
+  .log-line.CONFIG       { color: #c8a4f8; }
+  .log-line.ERROR        { color: #e94560; }
+  .log-line.INFO         { color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Traquito Jetpack</h1>
+  <span id="statusBadge">DISCONNECTED</span>
+  <button id="btnConnect" style="width:auto;margin:0;padding:5px 14px;">Connect</button>
+</header>
+
+<main>
+  <!-- LEFT: CONFIG + STATUS -->
+  <div class="panel">
+
+    <div class="card">
+      <h2>Configuration</h2>
+      <div class="field">
+        <label>Callsign</label>
+        <input id="cfgCallsign" type="text" placeholder="e.g. SP5FLS" maxlength="6">
+        <div id="callsignStatus"></div>
+      </div>
+      <div class="field">
+        <label>Band</label>
+        <input id="cfgBand" type="text" value="20m" maxlength="4">
+      </div>
+      <div class="field">
+        <label>Channel (0–599)</label>
+        <input id="cfgChannel" type="number" min="0" max="599" value="414">
+      </div>
+      <div class="field">
+        <label>Frequency correction (Hz)</label>
+        <input id="cfgCorrection" type="number" value="0">
+      </div>
+      <div class="field">
+        <label>Default grid (4-char Maidenhead)</label>
+        <input id="cfgGrid" type="text" placeholder="e.g. IO85" maxlength="4">
+      </div>
+      <div class="row">
+        <button id="btnGetConfig" class="secondary" disabled>Read</button>
+        <button id="btnSetConfig" disabled>Save</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Device Info</h2>
+      <div class="indicators">
+        <div class="indicator"><div class="val" id="indVersion">—</div><div class="lbl">Firmware</div></div>
+        <div class="indicator"><div class="val" id="indMode">—</div><div class="lbl">Mode</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>GPS</h2>
+      <div class="indicators">
+        <div class="indicator"><div class="val" id="gpsTime">—</div><div class="lbl">Time</div></div>
+        <div class="indicator"><div class="val" id="gpsGrid">—</div><div class="lbl">Grid</div></div>
+      </div>
+      <div class="indicators" style="margin-top:8px">
+        <div class="indicator"><div class="val" id="gpsLat">—</div><div class="lbl">Lat</div></div>
+        <div class="indicator"><div class="val" id="gpsLng">—</div><div class="lbl">Lng</div></div>
+        <div class="indicator"><div class="val" id="gpsAlt">—</div><div class="lbl">Alt (m)</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Temperature</h2>
+      <div class="indicators">
+        <div class="indicator"><div class="val" id="tempC">—</div><div class="lbl">°C</div></div>
+        <div class="indicator"><div class="val" id="tempF">—</div><div class="lbl">°F</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Danger Zone</h2>
+      <button id="btnDeleteConfig" style="background:#4a1a1a;color:#e94560;border:1px solid #e94560;" disabled>Erase flash config</button>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: LOG -->
+  <div class="log-panel">
+    <div class="log-toolbar">
+      <span>Serial log</span>
+      <div class="filter-group">
+        <label><input type="checkbox" id="fGps" checked> GPS</label>
+        <label><input type="checkbox" id="fTemp" checked> Temp</label>
+        <label><input type="checkbox" id="fTx" checked> TX</label>
+        <label><input type="checkbox" id="fConfig" checked> Config</label>
+        <label><input type="checkbox" id="fOther" checked> Other</label>
+      </div>
+      <button class="secondary" id="btnClearLog" style="width:auto;margin:0;padding:4px 10px;font-size:0.75rem;">Clear</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+// ── Serial state ────────────────────────────────────────────────────────────
+let port = null;
+let writer = null;
+let readLoopRunning = false;
+let lineBuffer = '';
+
+const btnConnect    = document.getElementById('btnConnect');
+const statusBadge   = document.getElementById('statusBadge');
+const btnGetConfig  = document.getElementById('btnGetConfig');
+const btnSetConfig  = document.getElementById('btnSetConfig');
+const btnDeleteConfig = document.getElementById('btnDeleteConfig');
+const logEl         = document.getElementById('log');
+
+// ── Connect / Disconnect ─────────────────────────────────────────────────────
+btnConnect.addEventListener('click', async () => {
+  if (port) {
+    await disconnect();
+  } else {
+    await connect();
+  }
+});
+
+async function connect() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    setConnected(true);
+    readLoop();
+    sendJSON({ type: 'REQ_GET_DEVICE_INFO' });
+    sendJSON({ type: 'REQ_GET_CONFIG' });
+  } catch (e) {
+    setError('Connection failed: ' + e.message);
+  }
+}
+
+async function disconnect() {
+  readLoopRunning = false;
+  try { writer.releaseLock(); } catch(_) {}
+  try { await port.close(); } catch(_) {}
+  port = null; writer = null;
+  setConnected(false);
+}
+
+function setConnected(ok) {
+  statusBadge.textContent = ok ? 'CONNECTED' : 'DISCONNECTED';
+  statusBadge.className   = ok ? 'connected' : '';
+  btnConnect.textContent  = ok ? 'Disconnect' : 'Connect';
+  [btnGetConfig, btnSetConfig, btnDeleteConfig].forEach(b => b.disabled = !ok);
+}
+
+function setError(msg) {
+  statusBadge.textContent = 'ERROR';
+  statusBadge.className   = 'error';
+  appendLog('ERROR', msg);
+}
+
+// ── Read loop ────────────────────────────────────────────────────────────────
+async function readLoop() {
+  readLoopRunning = true;
+  const decoder = new TextDecoder();
+  try {
+    while (port && port.readable && readLoopRunning) {
+      const reader = port.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          lineBuffer += decoder.decode(value);
+          let nl;
+          while ((nl = lineBuffer.indexOf('\n')) !== -1) {
+            const line = lineBuffer.slice(0, nl).trim();
+            lineBuffer = lineBuffer.slice(nl + 1);
+            if (line) handleLine(line);
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+  } catch (e) {
+    if (readLoopRunning) setError('Read error: ' + e.message);
+  }
+}
+
+// ── JSON send ────────────────────────────────────────────────────────────────
+async function sendJSON(obj) {
+  if (!writer) return;
+  const line = JSON.stringify(obj) + '\n';
+  await writer.write(new TextEncoder().encode(line));
+}
+
+// ── Incoming message handler ─────────────────────────────────────────────────
+function handleLine(line) {
+  let obj = null;
+  try { obj = JSON.parse(line); } catch(_) {}
+
+  if (!obj) {
+    appendLog('INFO', line);
+    return;
+  }
+
+  const t = obj.type || '';
+
+  // Update UI widgets
+  if (t === 'REP_GET_CONFIG' || t === 'REP_SET_CONFIG') {
+    if (t === 'REP_GET_CONFIG' || obj.ok) {
+      document.getElementById('cfgCallsign').value  = obj.callsign  ?? '';
+      document.getElementById('cfgBand').value      = obj.band      ?? '20m';
+      document.getElementById('cfgChannel').value   = obj.channel   ?? 0;
+      document.getElementById('cfgCorrection').value= obj.correction ?? 0;
+      document.getElementById('cfgGrid').value      = obj.grid      ?? '';
+      updateCallsignStatus(obj.callsignOk);
+    }
+    appendLog('CONFIG', line);
+    return;
+  }
+
+  if (t === 'REP_DELETE_CONFIG') {
+    appendLog('CONFIG', line);
+    return;
+  }
+
+  if (t === 'REP_GET_DEVICE_INFO') {
+    document.getElementById('indVersion').textContent = obj.swVersion ?? '?';
+    document.getElementById('indMode').textContent    = obj.mode      ?? '?';
+    appendLog('CONFIG', line);
+    return;
+  }
+
+  if (t === 'GPS_FIX_TIME') {
+    document.getElementById('gpsTime').textContent = obj.time ?? '—';
+    appendLog('GPS_FIX_TIME', line);
+    return;
+  }
+
+  if (t === 'GPS_FIX_2D') {
+    document.getElementById('gpsLat').textContent = obj.latDeg != null ? obj.latDeg.toFixed(5) : '—';
+    document.getElementById('gpsLng').textContent = obj.lngDeg != null ? obj.lngDeg.toFixed(5) : '—';
+    // Compute 4-char Maidenhead from lat/lng
+    document.getElementById('gpsGrid').textContent = latLngToGrid(obj.latDeg, obj.lngDeg);
+    appendLog('GPS_FIX_2D', line);
+    return;
+  }
+
+  if (t === 'GPS_FIX_3D') {
+    document.getElementById('gpsAlt').textContent = obj.altM ?? '—';
+    appendLog('GPS_FIX_3D', line);
+    return;
+  }
+
+  if (t === 'TEMP') {
+    document.getElementById('tempC').textContent = obj.tempC != null ? obj.tempC.toFixed(1) : '—';
+    document.getElementById('tempF').textContent = obj.tempF != null ? obj.tempF.toFixed(1) : '—';
+    appendLog('TEMP', line);
+    return;
+  }
+
+  // TX-related
+  if (t === 'TX_START' || t === 'TX_DONE' || t === 'REP_WSPR_SEND') {
+    appendLog('TX', line);
+    return;
+  }
+
+  appendLog('OTHER', line);
+}
+
+// ── Log display ───────────────────────────────────────────────────────────────
+const filterMap = {
+  GPS_FIX_TIME: 'fGps',
+  GPS_FIX_2D:   'fGps',
+  GPS_FIX_3D:   'fGps',
+  TEMP:         'fTemp',
+  TX:           'fTx',
+  CONFIG:       'fConfig',
+  ERROR:        'fOther',
+  INFO:         'fOther',
+  OTHER:        'fOther',
+};
+
+function appendLog(cls, text) {
+  const filterId = filterMap[cls] || 'fOther';
+  if (!document.getElementById(filterId).checked) return;
+
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+
+  const div = document.createElement('div');
+  div.className = 'log-line ' + cls;
+  div.textContent = '[' + ts + '] ' + text;
+  logEl.appendChild(div);
+
+  // keep max 2000 lines
+  while (logEl.childElementCount > 2000) logEl.removeChild(logEl.firstChild);
+
+  // auto-scroll only if near bottom
+  if (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80) {
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
+document.getElementById('btnClearLog').addEventListener('click', () => { logEl.innerHTML = ''; });
+
+// ── Config buttons ────────────────────────────────────────────────────────────
+btnGetConfig.addEventListener('click', () => sendJSON({ type: 'REQ_GET_CONFIG' }));
+
+btnSetConfig.addEventListener('click', () => {
+  sendJSON({
+    type:       'REQ_SET_CONFIG',
+    callsign:   document.getElementById('cfgCallsign').value.trim().toUpperCase(),
+    band:       document.getElementById('cfgBand').value.trim(),
+    channel:    parseInt(document.getElementById('cfgChannel').value, 10),
+    correction: parseInt(document.getElementById('cfgCorrection').value, 10),
+    grid:       document.getElementById('cfgGrid').value.trim().toUpperCase(),
+  });
+});
+
+btnDeleteConfig.addEventListener('click', () => {
+  if (confirm('This will erase the saved configuration from flash. Are you sure?')) {
+    sendJSON({ type: 'REQ_DELETE_CONFIG' });
+  }
+});
+
+// Live callsign validation
+document.getElementById('cfgCallsign').addEventListener('input', e => {
+  updateCallsignStatus(null); // unknown until device confirms
+});
+
+function updateCallsignStatus(ok) {
+  const el = document.getElementById('callsignStatus');
+  const input = document.getElementById('cfgCallsign');
+  if (ok === true)       { el.textContent = '✓ Valid'; el.style.color = '#4caf82'; input.className='ok'; }
+  else if (ok === false) { el.textContent = '✗ Invalid callsign'; el.style.color = '#e94560'; input.className='err'; }
+  else                   { el.textContent = ''; input.className=''; }
+}
+
+// ── Maidenhead grid helper ─────────────────────────────────────────────────────
+function latLngToGrid(lat, lng) {
+  if (lat == null || lng == null) return '—';
+  lng += 180; lat += 90;
+  const A = Math.floor(lng / 20);
+  const B = Math.floor(lat / 10);
+  const C = Math.floor((lng % 20) / 2);
+  const D = Math.floor(lat % 10);
+  return String.fromCharCode(65+A, 65+B, 48+C, 48+D);
+}
+
+// ── Web Serial availability check ─────────────────────────────────────────────
+if (!('serial' in navigator)) {
+  statusBadge.textContent = 'NOT SUPPORTED';
+  statusBadge.className   = 'error';
+  btnConnect.disabled     = true;
+  appendLog('ERROR', 'Web Serial API not available. Use Chrome/Edge 89+, served over HTTPS or localhost.');
+}
+</script>
+</body>
+</html>

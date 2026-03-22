@@ -1,0 +1,3 @@
+add_executable(TraquitoJetpack main.cpp CopilotControlScheduler.cpp)
+target_link_libraries(TraquitoJetpack PicoInf)
+pico_add_extra_outputs(TraquitoJetpack)
