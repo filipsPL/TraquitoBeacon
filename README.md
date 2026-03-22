@@ -23,7 +23,7 @@ Summary of changes:
 
 ## Use pre-compiled binaries
 
-Pre-compiled `.uf2` binaries are (will be) published *soon*.
+Pre-compiled `.uf2` binaries are published in releases: [https://github.com/filipsPL/TraquitoBeacon/releases/].
 
 To flash a `.uf2` file:
 1. Hold **BOOTSEL** on the Pico while plugging in USB — it mounts as `RPI-RP2`.
