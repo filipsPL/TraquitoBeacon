@@ -302,12 +302,21 @@ private:
 
     uint8_t startMin_ = 0;
 
+    uint8_t txInterval_  = 1;  // transmit every N windows (1 = every window)
+    uint8_t skipCounter_ = 0;  // counts windows since last transmission
+
 
 public:
 
     void SetStartMinute(uint8_t startMin)
     {
         startMin_ = startMin;
+    }
+
+    void SetTxInterval(uint8_t interval)
+    {
+        txInterval_  = interval < 1 ? 1 : interval;
+        skipCounter_ = 0;
     }
 
 
@@ -748,6 +757,21 @@ private:
         // logging
         Log("Time now : ", Time::GetNotionalTimeAtSystemUs(timeNowUs));
         PrintTimeAtDetails("Window At", timeNowUs, timeAtNextWindowStartUs);
+
+        // skip counter: only transmit every txInterval_ windows
+        ++skipCounter_;
+        if (skipCounter_ < txInterval_)
+        {
+            Mark("SKIP_WINDOW");
+            Log("Skipping window (", skipCounter_, "/", txInterval_, ")");
+
+            // clear send callbacks so no transmission fires this window
+            for (uint8_t i = 1; i <= 5; ++i) { UnSetCallbackSendDefault(i); }
+
+            ScheduleWindow(timeNowUs, timeAtNextWindowStartUs, haveGpsLock);
+            return;
+        }
+        skipCounter_ = 0;
 
         // fire event indicating that schedule about to be calculated
         CallbackScheduleNow(haveGpsLock);

@@ -104,6 +104,10 @@
         <label>Default grid (4-char Maidenhead)</label>
         <input id="cfgGrid" type="text" placeholder="e.g. IO85" maxlength="4">
       </div>
+      <div class="field">
+        <label>TX interval (cycles, 1 = every 2 min)</label>
+        <input id="cfgTxInterval" type="number" min="1" max="255" value="1">
+      </div>
       <div class="row">
         <button id="btnGetConfig" class="secondary" disabled>Read</button>
         <button id="btnSetConfig" disabled>Save</button>
@@ -271,11 +275,12 @@ function handleLine(line) {
   // Update UI widgets
   if (t === 'REP_GET_CONFIG' || t === 'REP_SET_CONFIG') {
     if (t === 'REP_GET_CONFIG' || obj.ok) {
-      document.getElementById('cfgCallsign').value  = obj.callsign  ?? '';
-      document.getElementById('cfgBand').value      = obj.band      ?? '20m';
-      document.getElementById('cfgChannel').value   = obj.channel   ?? 0;
-      document.getElementById('cfgCorrection').value= obj.correction ?? 0;
-      document.getElementById('cfgGrid').value      = obj.grid      ?? '';
+      document.getElementById('cfgCallsign').value   = obj.callsign   ?? '';
+      document.getElementById('cfgBand').value       = obj.band       ?? '20m';
+      document.getElementById('cfgChannel').value    = obj.channel    ?? 0;
+      document.getElementById('cfgCorrection').value = obj.correction ?? 0;
+      document.getElementById('cfgGrid').value       = obj.grid       ?? '';
+      document.getElementById('cfgTxInterval').value = obj.txInterval ?? 1;
       updateCallsignStatus(obj.callsignOk);
     }
     appendLog('CONFIG', line);
@@ -378,6 +383,7 @@ btnSetConfig.addEventListener('click', () => {
     channel:    parseInt(document.getElementById('cfgChannel').value, 10),
     correction: parseInt(document.getElementById('cfgCorrection').value, 10),
     grid:       document.getElementById('cfgGrid').value.trim().toUpperCase(),
+    txInterval: Math.max(1, parseInt(document.getElementById('cfgTxInterval').value, 10) || 1),
   });
 });
 

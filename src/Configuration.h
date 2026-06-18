@@ -21,6 +21,7 @@ private:
         array<char, 6 + 1> callsignStorage;
         int32_t correction;
         array<char, 6 + 1> gridStorage;
+        uint8_t txInterval;  // 1 = every 2-min window, 2 = every 4 min, etc.
     };
 
     Flashable<ConfigurationFlashState> flashState_;
@@ -41,6 +42,9 @@ private:
 
         flashState_.gridStorage.fill(0);
         grid = "";
+
+        flashState_.txInterval = 1;
+        txInterval = 1;
     }
 
 public:
@@ -78,6 +82,7 @@ public:
             callsign   = (const char *)flashState_.callsignStorage.data();
             correction = flashState_.correction;
             grid       = (const char *)flashState_.gridStorage.data();
+            txInterval = flashState_.txInterval < 1 ? 1 : flashState_.txInterval;
         }
 
         return retVal;
@@ -97,6 +102,8 @@ public:
 
         flashState_.gridStorage.fill(0);
         grid.copy(flashState_.gridStorage.data(), min(grid.size(), flashState_.gridStorage.size()));
+
+        flashState_.txInterval = txInterval;
 
         return flashState_.Put();
     }
@@ -124,6 +131,7 @@ private:
             out["callsign"]   = callsign;
             out["correction"] = correction;
             out["grid"]       = grid;
+            out["txInterval"] = txInterval;
 
             out["callsignOk"] = WsprMessageRegularType1::CallsignIsValid(callsign.c_str());
         });
@@ -143,6 +151,8 @@ private:
             string callsignIn    = (const char *)in["callsign"];
             int32_t correctionIn = (int32_t)in["correction"];
             string gridIn        = in.containsKey("grid") ? (const char *)in["grid"] : "";
+            uint8_t txIntervalIn = in.containsKey("txInterval") ? (uint8_t)(int)in["txInterval"] : 1;
+            if (txIntervalIn < 1) txIntervalIn = 1;
 
             bool ok = true;
             string err = "";
@@ -179,6 +189,7 @@ private:
                 callsign   = callsignIn;
                 correction = correctionIn;
                 grid       = gridIn;
+                txInterval = txIntervalIn;
 
                 ok = Put();
 
@@ -207,6 +218,7 @@ public:
     string   callsign;
     int32_t  correction;
     string   grid;
+    uint8_t  txInterval;
 };
 
 inline void LogNNL(const Configuration &c)

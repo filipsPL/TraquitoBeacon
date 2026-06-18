@@ -93,7 +93,11 @@ public:
     void SetupTransmitterForFlight()
     {
         // make sure config is the stored version
-        cfg_.Get();
+        if (cfg_.Get() == false)
+        {
+            Log("ERR: SetupTransmitterForFlight: Could not read config from flash (size mismatch or missing) -- send REQ_DELETE_CONFIG and reconfigure");
+            return;
+        }
 
         WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(cfg_.band.c_str(), cfg_.channel);
 

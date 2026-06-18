@@ -514,10 +514,9 @@ public:
         auto &scheduler = ssCc_.GetScheduler();
 
         Configuration &txCfg = ssTx_.GetConfiguration();
-        auto cd = WsprChannelMap::GetChannelDetails(txCfg.band.c_str(), txCfg.channel);
         // Every WSPR window is 2 minutes wide; align to even UTC minutes (startMin = 0).
-        // The channel's cd.min (0-9) is not used: we transmit on every 2-minute boundary.
         scheduler.SetStartMinute(0);
+        scheduler.SetTxInterval(txCfg.txInterval);
     }
 
 
