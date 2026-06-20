@@ -1,33 +1,36 @@
 # About
 
-This is the modification of [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) code. The code is experimental. 
+This is a modification of the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) firmware. The code is experimental.
 
-Disclaimer: most of the original code modifications has been vibe-coded using claude code.
+Disclaimer: most of the original code modifications have been vibe-coded using Claude Code.
 
 ## About the original code
 
-Source code for the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) and [direct link](https://github.com/dmalnati/TraquitoJetpack/)
+Source code for the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) — [direct link](https://github.com/dmalnati/TraquitoJetpack/).
 
-That (and this) project relies heavily on the [https://github.com/dmalnati/picoinf](https://github.com/dmalnati/picoinf) project.
+That (and this) project relies heavily on [picoinf](https://github.com/dmalnati/picoinf).
 
-# This fork
+# This fork — summary of changes
 
-Summary of changes:
-- no telemetry
-- transmission every 2 minutes
-- transmitting also when connected to USB/serial
-- less verbose about GPS NMEA logs
-- less frequent temperature reading (30 seconds)
-- `config.html` local page to configure beacon via WebSerial
-
+- **Multi-band slot scheduling** — 10-minute cycle with 5 independently configurable slots (minutes :00, :02, :04, :06, :08), each with its own band and channel. Leave a slot's band blank to disable it.
+- **Configurable TX interval** — transmit every N cycles (default 1 = every 10 minutes when using all slots, every 2 minutes when only slot 1 is used).
+- **Transmits while USB/serial connected** — no need to disconnect for the scheduler to run.
+- **No telemetry** — only Type 1 Regular WSPR messages (callsign + 4-char grid + power dBm).
+- **Fallback grid** — a default Maidenhead grid is used before a GPS 3D fix is acquired; updated automatically in flash once a fix is obtained.
+- **Less verbose GPS output** — raw NMEA `GPS_LINE` messages suppressed; `GPS_FIX_TIME`, `GPS_FIX_2D`, `GPS_FIX_3D` events still emitted.
+- **Less frequent temperature reading** — polled every 30 seconds instead of every second.
+- **`config.html`** — local web page to configure the beacon over WebSerial (Chrome/Edge 89+).
 
 ## Use pre-compiled binaries
 
-Pre-compiled `.uf2` binaries are published in releases: [https://github.com/filipsPL/TraquitoBeacon/releases/].
+Pre-compiled `.uf2` binaries are published in releases: <https://github.com/filipsPL/TraquitoBeacon/releases/>
 
 To flash a `.uf2` file:
+
 1. Hold **BOOTSEL** on the Pico while plugging in USB — it mounts as `RPI-RP2`.
 2. Copy `TraquitoJetpack.uf2` to the drive. The device reboots automatically.
+
+> **Note:** After flashing firmware that changes the configuration struct layout, send `{"type":"REQ_DELETE_CONFIG"}` via serial to erase stale flash data, then reconfigure.
 
 ## How to compile
 
@@ -50,75 +53,109 @@ make -j$(nproc)
 
 Output: `build/src/TraquitoJetpack.uf2`
 
-> **Note:** The `ext/picoinf` submodule contains local patches required for the Debian/Ubuntu toolchain. See the [Build fixes](#build-fixes-for-debianubuntu-gcc-arm-none-eabi-132) section below if you reset or update the submodule.
+> **Note:** The build produces a harmless linker error for the standalone `jerry.elf` host binary (a JerryScript test tool). The firmware target `TraquitoJetpack` builds successfully regardless.
+
+> **Note:** The `ext/picoinf` submodule contains local patches required for the Debian/Ubuntu toolchain. See [Build fixes](#build-fixes-for-debianubuntu-gcc-arm-none-eabi-132) below if you reset or update the submodule.
 
 ## Configuration
 
-### Via `config.html` and web serial
+### Via `config.html` and Web Serial
 
-Open `config.html` directly in Chrome or Edge (89+). Click **Connect**, select the Pico's USB serial port, then use the form to read or save configuration. The page also shows a live log of GPS fixes, temperature, and transmission events.
+Open `config.html` directly in Chrome or Edge (89+). Click **Connect**, select the Pico's USB serial port, then use the form to read or save configuration. The page shows a live log of GPS fixes, temperature, and transmission events.
 
 > [!TIP]
-> Web Serial requires Chrome/Edge. Firefox is not (yet) supported ☹️
+> Web Serial requires Chrome/Edge 89+. Firefox is not supported.
 
 ![screenshot](obrazki/obrazek-README.png)
 
-User can change multiple bands for timeslots (seconds 0, 2, 4, 6, and 8):
+**Configuration fields:**
 
-![alt text](obrazki/obrazek-timeslots.png)
+| Field                | Description                                                   |
+| -------------------- | ------------------------------------------------------------- |
+| Callsign             | Amateur radio callsign (up to 6 characters)                   |
+| Band                 | Primary/fallback band (e.g. `20m`)                            |
+| Channel              | Primary/fallback channel (0–599)                              |
+| Frequency correction | Signed Hz offset to compensate for Si5351 crystal error       |
+| Default grid         | 4-char Maidenhead locator used before GPS 3D fix              |
+| TX interval          | Number of 10-minute cycles between transmissions (default 1)  |
+| Slot schedule        | Per-slot band + channel for each 2-minute window in the cycle |
+
+**Slot schedule table** — each row corresponds to one 2-minute WSPR window within the 10-minute cycle. Leave the Band field blank to disable a slot (no transmission that window).
+
+![slot schedule](obrazki/obrazek-timeslots.png)
 
 ### Via serial
 
-- open serial console `tio --map INLCRNL,ODELBS --timestamp -e -b 115200 /dev/ttyACM0`
-- send config string, eg `{"type":"REQ_SET_CONFIG","band":"20m","channel":414,"callsign":"SP5FLS","correction":0,"grid":"IO85"}`
+Open a serial console:
 
+```bash
+tio --map INLCRNL,ODELBS --timestamp -e -b 115200 /dev/ttyACM0
+```
 
-## Operational changes (beacon-only, 2-minute cycle)
+Send JSON commands, e.g.:
 
-The firmware has been modified from its original multi-slot telemetry design:
+```json
+{"type":"REQ_SET_CONFIG","callsign":"SP5FLS","band":"20m","channel":414,"correction":0,"grid":"IO85","txInterval":1,"slotBands":["20m","10m","","",""],"slotChannels":[414,0,0,0,0]}
+```
 
-- **Telemetry removed** — only slot 1 (Type 1 Regular: callsign + grid + power) is transmitted. Slots 2–5 (basic telemetry, extended telemetry) are disabled.
-- **2-minute cycle** — the scheduler window is aligned to every even UTC minute (standard WSPR period) rather than every 10 minutes. Lockout ends after slot 1 completes so the next window is scheduled immediately.
-- **Fallback grid** — a default Maidenhead grid can be configured via `REQ_SET_CONFIG` (`"grid"` field). It is used for transmissions before a GPS 3D fix is acquired, and updated automatically in flash once a fix is obtained.
-- **Raw NMEA suppressed** — `GPS_LINE` JSON messages (raw `$GP...` sentences) are no longer emitted in config mode. `GPS_FIX_TIME`, `GPS_FIX_2D`, and `GPS_FIX_3D` events are still sent.
+## Operational details
 
-**Config API additions:**
+### Scheduling
 
-| Command | Description |
-|---------|-------------|
-| `REQ_SET_CONFIG` | Now accepts optional `"grid"` field (4-char Maidenhead, e.g. `"IO85"`) |
-| `REQ_GET_CONFIG` | Now returns `"grid"` field |
-| `REQ_DELETE_CONFIG` | Erases stored config from flash and resets to defaults. Use when flash write fails after a firmware upgrade that changed the config struct layout. |
+The scheduler operates on a 10-minute cycle aligned to even UTC minutes (standard WSPR windows). Within each cycle there are 5 slots:
 
-**Files changed:**
+| Slot | UTC minute offset | Configurable |
+| ---- | ----------------- | ------------ |
+| 1    | :00               | Yes          |
+| 2    | :02               | Yes          |
+| 3    | :04               | Yes          |
+| 4    | :06               | Yes          |
+| 5    | :08               | Yes          |
 
-| File | Change |
-|------|--------|
-| `src/Application.h` | Remove telemetry slots; always transmit Type 1 beacon; fall back to stored grid when no 3D fix; persist grid to flash on 3D fix; align window to minute 0 |
-| `src/Configuration.h` | Add `grid` field and `gridStorage` to flash struct; expose via `REQ_SET_CONFIG`/`REQ_GET_CONFIG`; add `REQ_DELETE_CONFIG` handler |
-| `src/CopilotControlScheduler.h` | Change window cycle from 10 min to 2 min; end lockout after period 1 instead of period 5 |
-| `src/SubsystemGps.h` | Suppress raw NMEA `GPS_LINE` output in config mode |
+Each slot has its own band and channel. The radio frequency is switched at the start of each slot period. Disabled slots (empty band) are silently skipped — the timer fires but no transmission occurs.
+
+The **TX interval** setting skips N−1 complete 10-minute cycles between active cycles. At interval=1 every cycle transmits; at interval=2 every other cycle transmits, etc.
+
+### Frequency
+
+Output frequency is derived entirely from the configured band and channel via `WsprChannelMap`. The **frequency correction** field (Hz) is applied on top to compensate for Si5351 crystal inaccuracy. No frequencies are hardcoded in this repository.
+
+### GPS and grid
+
+- The device waits for a GPS time fix (UTC sync) before scheduling any transmissions. A 3D position fix is not required.
+- Once a 3D fix is obtained, the 4-char Maidenhead grid is updated in the scheduler and persisted to flash.
+- Before a 3D fix, the last-known grid from flash (or the configured default grid) is used.
+
+### Config API
+
+| Command               | Description                                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `REQ_GET_CONFIG`      | Returns all configuration fields including per-slot arrays                                                                     |
+| `REQ_SET_CONFIG`      | Sets all configuration fields; per-slot `slotBands[]` and `slotChannels[]` are optional (existing values kept if omitted)      |
+| `REQ_DELETE_CONFIG`   | Erases stored config from flash and resets to defaults. Required after firmware upgrades that change the config struct layout. |
+| `REQ_GET_DEVICE_INFO` | Returns firmware version and current mode                                                                                      |
 
 ## Build fixes for Debian/Ubuntu (gcc-arm-none-eabi 13.2)
 
-The `ext/picoinf` submodule required local patches to build on a standard Debian/Ubuntu toolchain. These patches are not upstream. If you reset or update the submodule, reapply them.
+The `ext/picoinf` submodule required local patches to build on a standard Debian/Ubuntu toolchain. These patches are not upstream — reapply them if you reset or update the submodule.
 
 **Root causes:**
+
 - The packaged `gcc-arm-none-eabi` uses its own internal `stdint.h` rather than newlib's, so `__int64_t_defined` is never set, causing `PRIu64`/`SCNu*` macros from newlib's `inttypes.h` to be undefined even after `#include <cinttypes>`.
 - JerryScript's heap size (default 512 KB) was not being overridden correctly due to CMake cache variable precedence, causing the firmware's BSS to overflow Pico RAM by ~348 KB.
 - WsprEncoded unit tests were being compiled and cross-linked with the ARM toolchain (missing POSIX syscalls).
 - `clock_handle_t` was renamed to `enum clock_index` in the pico-sdk version used here.
 - `Time.h` was renamed to `TimeClass.h` in picoinf.
 
-**Files changed:**
+**Files patched:**
 
-| File | Change |
-|------|--------|
-| `ext/picoinf/CMakeLists.txt` | Add `__STDC_FORMAT_MACROS` compile definition; use `CACHE STRING "" FORCE` for JerryScript heap/stack limits |
-| `ext/picoinf/ext/WsprEncoded/CMakeLists.txt` | Suppress `-Werror=stringop-truncation`; skip `test/` subdirectory when not top-level project |
-| `ext/picoinf/src/App/Log/Log.cpp` | Replace `PRIu64`/`PRId64` with `%llu`/`%lld` |
-| `ext/picoinf/src/App/Utl/UtlString.h` | Add `#include <cstdint>` |
-| `ext/picoinf/src/App/Utl/UtlString.cpp` | Replace `PRIu64` with `%llu` |
-| `ext/picoinf/src/App/Service/TimeClass.cpp` | Replace `SCNu*` macros with `%u` and explicit casts |
-| `ext/picoinf/src/App/Peripheral/Clock.cpp` | Replace `clock_handle_t` with `enum clock_index` |
-| `src/Application.h` | `#include "Time.h"` → `#include "TimeClass.h"` |
+| File                                         | Change                                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ext/picoinf/CMakeLists.txt`                 | Add `__STDC_FORMAT_MACROS` compile definition; use `CACHE STRING "" FORCE` for JerryScript heap/stack limits |
+| `ext/picoinf/ext/WsprEncoded/CMakeLists.txt` | Suppress `-Werror=stringop-truncation`; skip `test/` subdirectory when not top-level project                 |
+| `ext/picoinf/src/App/Log/Log.cpp`            | Replace `PRIu64`/`PRId64` with `%llu`/`%lld`                                                                 |
+| `ext/picoinf/src/App/Utl/UtlString.h`        | Add `#include <cstdint>`                                                                                     |
+| `ext/picoinf/src/App/Utl/UtlString.cpp`      | Replace `PRIu64` with `%llu`                                                                                 |
+| `ext/picoinf/src/App/Service/TimeClass.cpp`  | Replace `SCNu*` macros with `%u` and explicit casts                                                          |
+| `ext/picoinf/src/App/Peripheral/Clock.cpp`   | Replace `clock_handle_t` with `enum clock_index`                                                             |
+| `src/Application.h`                          | `#include "Time.h"` → `#include "TimeClass.h"`                                                               |
