@@ -90,6 +90,16 @@ public:
         wsprMessageTransmitter_.SetCorrection(cfg_.correction);
     }
 
+    void SetupTransmitterForSlot(const string &band, uint16_t channel, int32_t correction)
+    {
+        WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(band.c_str(), channel);
+
+        Log("Setup Transmitter (Slot): Band=", band, " Ch=", channel, " Freq=", Commas(cd.freq));
+
+        wsprMessageTransmitter_.SetFrequency(cd.freq);
+        wsprMessageTransmitter_.SetCorrection(correction);
+    }
+
     void SetupTransmitterForFlight()
     {
         // make sure config is the stored version

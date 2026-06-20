@@ -23,15 +23,12 @@ struct TestConfiguration
     bool watchdogOn = true;
     bool logAsync = true;
     bool evmOnly = false;
-    bool sendEncoded = true;
     bool apiMode = false;
 };
 
 TestConfiguration testCfg;
 
 
-// special convenience setting to switch to separately-released build
-static const bool API_MODE_BUILD = false;
 
 class Application
 {
@@ -47,12 +44,6 @@ public:
         {
             PowerSave();
         }
-
-        // override for special build
-        testCfg = !API_MODE_BUILD ? testCfg : TestConfiguration{
-            .enabled = true,
-            .apiMode = true,
-        };
 
         // we use both the second I2C instance also
         I2C::Init1();
@@ -314,6 +305,20 @@ public:
             Log("Lane      : ", cd.lane);
             Log("Freq      : ", Commas(cd.freq));
             Log("Correction: ", txCfg.correction);
+            Log("TxInterval: ", txCfg.txInterval);
+            Log("Slots:");
+            for (uint8_t i = 0; i < SLOT_COUNT; ++i)
+            {
+                if (txCfg.SlotEnabled(i + 1))
+                {
+                    auto scd = WsprChannelMap::GetChannelDetails(txCfg.slotBand[i].c_str(), txCfg.slotChannel[i]);
+                    Log("  Slot ", i + 1, " (min :", i * 2, "): ", txCfg.slotBand[i], " ch ", txCfg.slotChannel[i], " freq ", Commas(scd.freq));
+                }
+                else
+                {
+                    Log("  Slot ", i + 1, " (min :", i * 2, "): disabled");
+                }
+            }
             LogNL();
 
             // Signal ok
@@ -442,10 +447,33 @@ public:
         auto &scheduler = ssCc_.GetScheduler();
 
         scheduler.SetCallbackScheduleNow([this, &scheduler](bool haveGpsLock){
-            scheduler.UnSetCallbackSendDefault(1);
-            scheduler.UnSetCallbackSendDefault(2);
+            const Configuration &txCfg = ssTx_.GetConfiguration();
 
-            scheduler.SetCallbackSendDefault(1, false, [this](uint8_t, uint64_t){ SendRegularType1(); });
+            // Arm each slot whose band is configured and valid.
+            for (uint8_t slot = 1; slot <= SLOT_COUNT; ++slot)
+            {
+                scheduler.UnSetCallbackSendDefault(slot);
+                if (txCfg.SlotEnabled(slot))
+                {
+                    scheduler.SetCallbackSendDefault(slot, false, [this](uint8_t, uint64_t){
+                        SendRegularType1();
+                    });
+                }
+            }
+        });
+
+        // Switch the transmitter frequency to the band configured for this slot
+        // before the period fires its send callback.
+        scheduler.SetCallbackSetSlotFrequency([this](uint8_t slot){
+            Configuration &txCfg = ssTx_.GetConfiguration();
+            if (slot >= 1 && slot <= SLOT_COUNT && txCfg.SlotEnabled(slot))
+            {
+                const string   &b = txCfg.slotBand[slot - 1];
+                uint16_t        c = txCfg.slotChannel[slot - 1];
+                auto cd = WsprChannelMap::GetChannelDetails(b.c_str(), c);
+                Log("Slot ", slot, ": switching to ", b, " ch ", c, " freq ", Commas(cd.freq));
+                ssTx_.SetupTransmitterForSlot(b, c, txCfg.correction);
+            }
         });
 
         scheduler.SetCallbackSendUserDefined([this](uint8_t slot, MsgUD &msg, uint64_t quitAfterMs){
@@ -464,7 +492,7 @@ public:
         scheduler.SetCallbackStartRadioWarmup([this]{
             ssTx_.Enable();
             ssTx_.RadioOn();
-            ssTx_.SetupTransmitterForFlight();
+            // Frequency is set per-slot via SetCallbackSetSlotFrequency before each period.
 
             BlinkerTransmit();
         });
@@ -546,29 +574,6 @@ public:
         });
     };
 
-    void SendBasicTelemetry()
-    {
-        // get data needed to fill out encoded message
-        const Configuration &txCfg = ssTx_.GetConfiguration();
-        WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(txCfg.band.c_str(), txCfg.channel);
-
-        string   grid56    = fix3dPlus_.maidenheadGrid.substr(4, 2);
-        uint32_t altM      = fix3dPlus_.altitudeM < 0 ? 0 : fix3dPlus_.altitudeM;
-        int8_t   tempC     = tempSensor_.GetTempC();
-        double   voltage   = (double)ADC::GetMilliVoltsVCC() / 1'000;  // capture under max load
-        bool     gpsValid  = true;
-
-        ssTx_.SendTelemetryBasic(
-            cd.id13,
-            grid56,
-            altM,
-            tempC,
-            voltage,
-            fix3dPlus_.speedKnots,
-            gpsValid
-        );
-    };
-
     void SendUserDefined(uint8_t slot, MsgUD &msg, uint64_t quitAfterMs)
     {
         const Configuration &txCfg = ssTx_.GetConfiguration();
@@ -586,67 +591,6 @@ public:
         Log("Sent");
     }
 
-    void SendVendorDefinedGpsData()
-    {
-        // set up message
-        // { "name": "DurBeforeTimeLock", "unit": "Seconds", "lowValue":  0,  "highValue": 1200,  "stepSize":  5 },
-        // { "name": "DurGpsOn",          "unit": "Seconds", "lowValue":  0,  "highValue": 1800,  "stepSize": 10 },
-        // { "name": "SatsGP",            "unit": "Count",   "lowValue":  0,  "highValue":   32,  "stepSize":  1 },
-        // { "name": "SatsBD",            "unit": "Count",   "lowValue":  0,  "highValue":   45,  "stepSize":  1 },
-        const char *fieldDurBeforeTimeLock = "DurBeforeTimeLockSeconds";
-        const char *fieldDurGpsOn          = "DurGpsOnSeconds";
-        const char *fieldSatsGP            = "SatsGPCount";
-        const char *fieldSatsBD            = "SatsBDCount";
-
-        msgVd_.ResetEverything();
-        msgVd_.DefineField(fieldDurBeforeTimeLock, 0, 1200,  5);
-        msgVd_.DefineField(fieldDurGpsOn,          0, 1800, 10);
-        msgVd_.DefineField(fieldSatsGP,            0,   32,  1);
-        msgVd_.DefineField(fieldSatsBD,            0,   45,  1);
-
-        // calculate field values
-        uint64_t durBeforeTimeLockSec = 0;
-        if (t_.GetTimeAtEvent("FixTime") >= t_.GetTimeAtEvent("GpsEnabled"))
-        {
-            uint64_t durBeforeTimeLockUs  = t_.GetTimeAtEvent("FixTime") - t_.GetTimeAtEvent("GpsEnabled");
-            durBeforeTimeLockSec = durBeforeTimeLockUs / 1'000'000;
-        }
-
-        uint64_t durGpsOnSec = 0;
-        if (t_.GetTimeAtEvent("CancelReqNewGpsLock") >= t_.GetTimeAtEvent("GpsEnabled"))
-        {
-            uint64_t durGpsOnUs  = t_.GetTimeAtEvent("CancelReqNewGpsLock") - t_.GetTimeAtEvent("GpsEnabled");
-            durGpsOnSec = durGpsOnUs / 1'000'000;
-        }
-
-        uint8_t satsGP = ssGps_.GetGPSReader().GetSatelliteDataGPList().size();
-        uint8_t satsBD = ssGps_.GetGPSReader().GetSatelliteDataBDList().size();
-
-        // fill out
-        msgVd_.Set(fieldDurBeforeTimeLock, durBeforeTimeLockSec);
-        msgVd_.Set(fieldDurGpsOn,          durGpsOnSec);
-        msgVd_.Set(fieldSatsGP,            satsGP);
-        msgVd_.Set(fieldSatsBD,            satsBD);
-
-        // configure and encode
-        const Configuration &txCfg = ssTx_.GetConfiguration();
-        WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(txCfg.band.c_str(), txCfg.channel);
-
-        msgVd_.SetId13(cd.id13);
-        msgVd_.SetHdrSlot(0);
-        msgVd_.Encode();
-
-        // log
-        Log("Sending VendorDefined message");
-        Log("- ", fieldDurBeforeTimeLock, " = ", Commas(durBeforeTimeLockSec));
-        Log("- ", fieldDurGpsOn,          " = ", Commas(durGpsOnSec));
-        Log("- ", fieldSatsGP,            " = ", Commas(satsGP));
-        Log("- ", fieldSatsBD,            " = ", Commas(satsBD));
-
-        // send
-        ssTx_.SendMessage(msgVd_);
-        Log("Sent");
-    }
 
 
     /////////////////////////////////////////////////////////////////
@@ -936,9 +880,6 @@ private:
     Timer timerGpsLockOrDie_;
 
     Blinker blinker_;
-
-    using MsgVD = WsprMessageTelemetryExtendedVendorDefined<29>;
-    static inline MsgVD msgVd_;
 
     Timeline t_;
 

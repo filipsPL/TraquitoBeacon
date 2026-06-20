@@ -26,6 +26,9 @@
   .field label { display: block; font-size: 0.7rem; color: #888; margin-bottom: 4px; }
   .field input { width: 100%; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 6px 8px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; }
   .field input:focus { outline: none; border-color: #e94560; }
+  .slot-input { width: 100%; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 4px 6px; border-radius: 4px; font-family: monospace; font-size: 0.82rem; }
+  .slot-input:focus { outline: none; border-color: #e94560; }
+  td { padding: 3px 4px; }
   .field input.ok { border-color: #4caf82; }
   .field input.err { border-color: #e94560; }
 
@@ -89,12 +92,26 @@
         <div id="callsignStatus"></div>
       </div>
       <div class="field">
-        <label>Band</label>
+        <label>Band (primary / fallback)</label>
         <input id="cfgBand" type="text" value="20m" maxlength="4">
       </div>
       <div class="field">
-        <label>Channel (0–599)</label>
+        <label>Channel (primary / fallback, 0–599)</label>
         <input id="cfgChannel" type="number" min="0" max="599" value="414">
+      </div>
+      <div class="field">
+        <label>Slot schedule (leave Band blank to disable slot)</label>
+        <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin-top:4px;">
+          <thead>
+            <tr>
+              <th style="color:#888;font-weight:normal;text-align:left;padding:2px 4px;">Min</th>
+              <th style="color:#888;font-weight:normal;text-align:left;padding:2px 4px;">Band</th>
+              <th style="color:#888;font-weight:normal;text-align:left;padding:2px 4px;">Channel</th>
+            </tr>
+          </thead>
+          <tbody id="slotTableBody">
+          </tbody>
+        </table>
       </div>
       <div class="field">
         <label>Frequency correction (Hz)</label>
@@ -168,6 +185,36 @@
 </main>
 
 <script>
+// ── Slot table ───────────────────────────────────────────────────────────────
+const SLOT_COUNT = 5;
+
+function buildSlotTable() {
+  const tbody = document.getElementById('slotTableBody');
+  tbody.innerHTML = '';
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td style="color:#aaa">:${String(i * 2).padStart(2,'0')}</td>` +
+      `<td><input class="slot-input" id="slotBand${i}" type="text" maxlength="4" placeholder="e.g. 20m"></td>` +
+      `<td><input class="slot-input" id="slotCh${i}" type="number" min="0" max="599" value="0"></td>`;
+    tbody.appendChild(tr);
+  }
+}
+buildSlotTable();
+
+function getSlotBands() {
+  return Array.from({length: SLOT_COUNT}, (_, i) => document.getElementById('slotBand' + i).value.trim());
+}
+function getSlotChannels() {
+  return Array.from({length: SLOT_COUNT}, (_, i) => parseInt(document.getElementById('slotCh' + i).value, 10) || 0);
+}
+function setSlotValues(bands, channels) {
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    document.getElementById('slotBand' + i).value = (bands && bands[i]) ? bands[i] : '';
+    document.getElementById('slotCh' + i).value   = (channels && channels[i] != null) ? channels[i] : 0;
+  }
+}
+
 // ── Serial state ────────────────────────────────────────────────────────────
 let port = null;
 let writer = null;
@@ -281,6 +328,7 @@ function handleLine(line) {
       document.getElementById('cfgCorrection').value = obj.correction ?? 0;
       document.getElementById('cfgGrid').value       = obj.grid       ?? '';
       document.getElementById('cfgTxInterval').value = obj.txInterval ?? 1;
+      setSlotValues(obj.slotBands, obj.slotChannels);
       updateCallsignStatus(obj.callsignOk);
     }
     appendLog('CONFIG', line);
@@ -378,12 +426,14 @@ btnGetConfig.addEventListener('click', () => sendJSON({ type: 'REQ_GET_CONFIG' }
 btnSetConfig.addEventListener('click', () => {
   sendJSON({
     type:       'REQ_SET_CONFIG',
-    callsign:   document.getElementById('cfgCallsign').value.trim().toUpperCase(),
-    band:       document.getElementById('cfgBand').value.trim(),
-    channel:    parseInt(document.getElementById('cfgChannel').value, 10),
-    correction: parseInt(document.getElementById('cfgCorrection').value, 10),
-    grid:       document.getElementById('cfgGrid').value.trim().toUpperCase(),
-    txInterval: Math.max(1, parseInt(document.getElementById('cfgTxInterval').value, 10) || 1),
+    callsign:     document.getElementById('cfgCallsign').value.trim().toUpperCase(),
+    band:         document.getElementById('cfgBand').value.trim(),
+    channel:      parseInt(document.getElementById('cfgChannel').value, 10),
+    correction:   parseInt(document.getElementById('cfgCorrection').value, 10),
+    grid:         document.getElementById('cfgGrid').value.trim().toUpperCase(),
+    txInterval:   Math.max(1, parseInt(document.getElementById('cfgTxInterval').value, 10) || 1),
+    slotBands:    getSlotBands(),
+    slotChannels: getSlotChannels(),
   });
 });
 

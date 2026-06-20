@@ -201,9 +201,10 @@ public:
 
 private:
 
-    function<bool()> fnCbRadioIsActive_     = []{ return false; };
-    function<void()> fnCbStartRadioWarmup_  = []{};
-    function<void()> fnCbStopRadio_         = []{};
+    function<bool()>             fnCbRadioIsActive_     = []{ return false; };
+    function<void()>             fnCbStartRadioWarmup_  = []{};
+    function<void()>             fnCbStopRadio_         = []{};
+    function<void(uint8_t slot)> fnCbSetSlotFrequency_  = [](uint8_t){};
 
     bool RadioIsActive()
     {
@@ -237,6 +238,14 @@ private:
         }
     }
 
+    void SetSlotFrequency(uint8_t slot)
+    {
+        if (IsTesting() == false)
+        {
+            fnCbSetSlotFrequency_(slot);
+        }
+    }
+
 public:
 
     void SetCallbackRadioIsActive(function<bool()> fn)
@@ -252,6 +261,13 @@ public:
     void SetCallbackStopRadio(function<void()> fn)
     {
         fnCbStopRadio_ = fn;
+    }
+
+    // Called at the start of each period so the transmitter frequency can be
+    // switched to the band configured for that slot (1-based).
+    void SetCallbackSetSlotFrequency(function<void(uint8_t slot)> fn)
+    {
+        fnCbSetSlotFrequency_ = fn;
     }
 
 
@@ -1245,10 +1261,9 @@ public: // for test running
 
         // Schedule Lock Out End.
         //
-        // Only slot 1 is used (no telemetry, 2-minute cycle).
-        // End lockout after period 1 so the scheduler immediately reschedules
-        // the next 2-minute window rather than waiting through periods 2-5.
-        const uint64_t TIME_AT_SCHEDULE_LOCK_OUT_END_US = TIME_AT_PERIOD1_START_US;
+        // End lockout after Period 5 so all 5 slots (minutes 0,2,4,6,8) can
+        // transmit before the scheduler reschedules the next 10-minute cycle.
+        const uint64_t TIME_AT_SCHEDULE_LOCK_OUT_END_US = TIME_AT_PERIOD5_START_US;
 
 
 
@@ -1311,6 +1326,7 @@ public: // for test running
 
         timerPeriod1_.SetCallback([this]{
             Mark("PERIOD1_START");
+            SetSlotFrequency(1);
             DoPeriodBehavior(&slotState1_, 0, &slotState2_, "slot2");
             Mark("PERIOD1_END");
         });
@@ -1319,6 +1335,7 @@ public: // for test running
 
         timerPeriod2_.SetCallback([this]{
             Mark("PERIOD2_START");
+            SetSlotFrequency(2);
             DoPeriodBehavior(&slotState2_, 0, &slotState3_, "slot3");
             Mark("PERIOD2_END");
         });
@@ -1327,6 +1344,7 @@ public: // for test running
 
         timerPeriod3_.SetCallback([this]{
             Mark("PERIOD3_START");
+            SetSlotFrequency(3);
             DoPeriodBehavior(&slotState3_, 0, &slotState4_, "slot4");
             Mark("PERIOD3_END");
         });
@@ -1335,6 +1353,7 @@ public: // for test running
 
         timerPeriod4_.SetCallback([this]{
             Mark("PERIOD4_START");
+            SetSlotFrequency(4);
             DoPeriodBehavior(&slotState4_, 0, &slotState5_, "slot5");
             Mark("PERIOD4_END");
         });
@@ -1343,6 +1362,7 @@ public: // for test running
 
         timerPeriod5_.SetCallback([this]{
             Mark("PERIOD5_START");
+            SetSlotFrequency(5);
             // tell sender to quit early
             const uint64_t ONE_MINUTE_MS = 1 * 60 * 1'000;
             DoPeriodBehavior(&slotState5_, ONE_MINUTE_MS);
