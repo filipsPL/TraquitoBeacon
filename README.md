@@ -59,10 +59,13 @@ Output: `build/src/TraquitoJetpack.uf2`
 Open `config.html` directly in Chrome or Edge (89+). Click **Connect**, select the Pico's USB serial port, then use the form to read or save configuration. The page also shows a live log of GPS fixes, temperature, and transmission events.
 
 > [!TIP]
-> Web Serial requires Chrome/Edge. Firefox is not supported ☹️
+> Web Serial requires Chrome/Edge. Firefox is not (yet) supported ☹️
 
 ![screenshot](obrazki/obrazek-README.png)
 
+User can change multiple bands for timeslots (seconds 0, 2, 4, 6, and 8):
+
+![alt text](obrazki/obrazek-timeslots.png)
 
 ### Via serial
 
