@@ -1,3 +1,4 @@
 add_executable(TraquitoJetpack main.cpp CopilotControlScheduler.cpp)
 target_link_libraries(TraquitoJetpack PicoInf)
+target_compile_options(TraquitoJetpack PRIVATE -Wno-stringop-truncation)
 pico_add_extra_outputs(TraquitoJetpack)

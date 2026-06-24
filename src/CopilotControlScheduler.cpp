@@ -587,7 +587,7 @@ void TestGpsEventsApplyTimeCacheTime(TimerSequence &ts)
     test.DelayMs(300);                                          // +300ms = 00.700 (within target)
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_TIME");   // next window
     test.DelayMs(1'100);
@@ -602,9 +602,9 @@ void TestGpsEventsApplyTimeCacheTimeTime(TimerSequence &ts)
     test.DelayMs(300);                                          // +300ms = 00.700 (within target)
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_TIME");   // next window
     test.DelayMs(1'100);
@@ -619,7 +619,7 @@ void TestGpsEventsApplyTimeCache3d(TimerSequence &ts)
     test.DelayMs(300);                                          // +300ms = 00.700 (within target)
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'100);
@@ -634,9 +634,9 @@ void TestGpsEventsApplyTimeCache3d3d(TimerSequence &ts)
     test.DelayMs(300);                                          // +300ms = 00.700 (within target)
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLock3DPlusReqNoLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'100);
@@ -651,9 +651,9 @@ void TestGpsEventsApplyTimeCacheTime3d(TimerSequence &ts)
     test.DelayMs(300);                                          // +300ms = 00.700 (within target)
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'100);
@@ -668,9 +668,9 @@ void TestGpsEventsApplyTimeCache3dTime(TimerSequence &ts)
     test.DelayMs(300);                                          // +300ms = 00.700 (within target)
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLockOnTimeReqNoLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'100);
@@ -686,7 +686,7 @@ void TestGpsEventsApply3dCacheTime(TimerSequence &ts)
                                                                 // no need to wait, scheduled immediately
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_TIME");   // next window
     test.DelayMs(1'000);
@@ -701,9 +701,9 @@ void TestGpsEventsApply3dCacheTimeTime(TimerSequence &ts)
                                                                 // no need to wait, scheduled immediately
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_TIME");   // next window
     test.DelayMs(1'000);
@@ -718,7 +718,7 @@ void TestGpsEventsApply3dCache3d(TimerSequence &ts)
                                                                 // no need to wait, scheduled immediately
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'000);
@@ -733,9 +733,9 @@ void TestGpsEventsApply3dCache3d3d(TimerSequence &ts)
                                                                 // no need to wait, scheduled immediately
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLock3DPlusReqNoLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'000);
@@ -750,9 +750,9 @@ void TestGpsEventsApply3dCacheTime3d(TimerSequence &ts)
                                                                 // no need to wait, scheduled immediately
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLockOnTimeReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'000);
@@ -767,9 +767,9 @@ void TestGpsEventsApply3dCache3dTime(TimerSequence &ts)
                                                                 // no need to wait, scheduled immediately
     test.AddExpectedWindowLockoutStartEvent();
     test.DoLock3DPlusReqOnLockoutOn("2025-01-01 12:16:00.500")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.DoLockOnTimeReqNoLockoutOn("2025-01-01 12:16:00.600")
-        .StartAtUs([]{ return scheduler->timerTxDisableGpsEnable_.GetTimeoutAtUs(); });
+        .StartAtUs([]{ return scheduler->timerScheduleLockOutEnd_.GetTimeoutAtUs(); });
     test.AddExpectedWindowLockoutEndEvent();
     test.AddExpectedEvent("APPLY_CACHE_NEW_3D_PLUS");   // next window
     test.DelayMs(1'000);
@@ -1107,9 +1107,7 @@ void TestDefaultWithGps()
             vector<string> expectedList = {
                 "JS_EXEC",               "SEND_REGULAR_TYPE1",      // slot 1
                 "JS_EXEC",               "SEND_BASIC_TELEMETRY",    // slot 2
-                "JS_EXEC",                                          // slot 3 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",        // slot 3 msg
+                "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 3
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 4
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 5
             };
@@ -1155,7 +1153,6 @@ void TestDefaultNoGps()
             scheduler->SetTesting(false);
 
             vector<string> expectedList = {
-                "TX_DISABLE_GPS_ENABLE",
                 "JS_EXEC",               "SEND_NO_MSG_NONE",    // slot 1
                 "JS_EXEC",               "SEND_NO_MSG_NONE",    // slot 2
                 "JS_EXEC",               "SEND_NO_MSG_NONE",    // slot 3
@@ -1209,7 +1206,6 @@ void TestAllOverrideWithGps()
                 "JS_EXEC",               "SEND_CUSTOM_MESSAGE",    // slot 3
                 "JS_EXEC",               "SEND_CUSTOM_MESSAGE",    // slot 4
                 "JS_EXEC",               "SEND_CUSTOM_MESSAGE",    // slot 5
-                "TX_DISABLE_GPS_ENABLE",
             };
 
             bool testOk = AssertSchedule(title, scheduler->GetMarkList(), expectedList);
@@ -1253,7 +1249,6 @@ void TestAllCustomMessagesNeedGpsWithNoGps()
             scheduler->SetTesting(false);
 
             vector<string> expectedList = {
-                "TX_DISABLE_GPS_ENABLE",
                 "JS_NO_EXEC",               "SEND_NO_MSG_NONE",    // slot 1
                 "JS_NO_EXEC",               "SEND_NO_MSG_NONE",    // slot 2
                 "JS_NO_EXEC",               "SEND_NO_MSG_NONE",    // slot 3
@@ -1306,9 +1301,7 @@ void TestSomeCustomMessagesNeedGpsSomeDontWithGps()
                 "JS_EXEC",               "SEND_BASIC_TELEMETRY",    // slot 2
                 "JS_EXEC",               "SEND_CUSTOM_MESSAGE",     // slot 3
                 "JS_EXEC",               "SEND_CUSTOM_MESSAGE",     // slot 4
-                "JS_EXEC",                                          // slot 5 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",        // slot 5 msg
+                "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 5
             };
 
             bool testOk = AssertSchedule(title, scheduler->GetMarkList(), expectedList);
@@ -1358,9 +1351,7 @@ void TestSomeCustomMessagesNeedGpsSomeDontNoGps()
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 1
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 2
                 "JS_EXEC",               "SEND_CUSTOM_MESSAGE",     // slot 3
-                "JS_NO_EXEC",                                       // slot 4 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",        // slot 4 msg
+                "JS_NO_EXEC",            "SEND_NO_MSG_NONE",        // slot 4
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 5
             };
 
@@ -1415,9 +1406,7 @@ void TestDefaultWithGpsBadJs()
             vector<string> expectedList = {
                 "JS_EXEC",               "SEND_REGULAR_TYPE1",      // slot 1
                 "JS_EXEC",               "SEND_BASIC_TELEMETRY",    // slot 2
-                "JS_EXEC",                                          // slot 3 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",        // slot 3 msg
+                "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 3
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 4
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 5
             };
@@ -1463,7 +1452,6 @@ void TestDefaultNoGpsBadJs()
             scheduler->SetTesting(false);
 
             vector<string> expectedList = {
-                "TX_DISABLE_GPS_ENABLE",
                 "JS_EXEC",               "SEND_NO_MSG_NONE",    // slot 1
                 "JS_EXEC",               "SEND_NO_MSG_NONE",    // slot 2
                 "JS_EXEC",               "SEND_NO_MSG_NONE",    // slot 3
@@ -1517,7 +1505,6 @@ void TestAllOverrideWithGpsBadJs()
                 "JS_EXEC",               "SEND_NO_MSG_BAD_JS_NO_DEFAULT",    // slot 3
                 "JS_EXEC",               "SEND_NO_MSG_BAD_JS_NO_DEFAULT",    // slot 4
                 "JS_EXEC",               "SEND_NO_MSG_BAD_JS_NO_DEFAULT",    // slot 5
-                "TX_DISABLE_GPS_ENABLE",
             };
 
             bool testOk = AssertSchedule(title, scheduler->GetMarkList(), expectedList);
@@ -1561,7 +1548,6 @@ void TestAllCustomMessagesNeedGpsWithNoGpsBadJs()
             scheduler->SetTesting(false);
 
             vector<string> expectedList = {
-                "TX_DISABLE_GPS_ENABLE",
                 "JS_NO_EXEC",               "SEND_NO_MSG_NONE",    // slot 1
                 "JS_NO_EXEC",               "SEND_NO_MSG_NONE",    // slot 2
                 "JS_NO_EXEC",               "SEND_NO_MSG_NONE",    // slot 3
@@ -1614,9 +1600,7 @@ void TestSomeCustomMessagesNeedGpsSomeDontWithGpsBadJs()
                 "JS_EXEC",               "SEND_BASIC_TELEMETRY",            // slot 2
                 "JS_EXEC",               "SEND_NO_MSG_BAD_JS_NO_DEFAULT",   // slot 3
                 "JS_EXEC",               "SEND_NO_MSG_BAD_JS_NO_DEFAULT",   // slot 4
-                "JS_EXEC",                                                  // slot 5 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",                // slot 5 msg
+                "JS_EXEC",               "SEND_NO_MSG_NONE",                // slot 5
             };
 
             bool testOk = AssertSchedule(title, scheduler->GetMarkList(), expectedList);
@@ -1667,9 +1651,7 @@ void TestSomeCustomMessagesNeedGpsSomeDontNoGpsBadJs()
                 "JS_EXEC",               "SEND_NO_MSG_NONE",                // slot 1
                 "JS_EXEC",               "SEND_NO_MSG_NONE",                // slot 2
                 "JS_EXEC",               "SEND_NO_MSG_BAD_JS_NO_DEFAULT",   // slot 3
-                "JS_NO_EXEC",                                               // slot 4 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",                // slot 4 msg
+                "JS_NO_EXEC",            "SEND_NO_MSG_NONE",                // slot 4
                 "JS_EXEC",               "SEND_NO_MSG_NONE",                // slot 5
             };
 
@@ -1715,9 +1697,7 @@ void TestOverrideBasicTelemetryButBadJs()
             vector<string> expectedList = {
                 "JS_EXEC",               "SEND_REGULAR_TYPE1",      // slot 1
                 "JS_EXEC",               "SEND_BASIC_TELEMETRY",    // slot 2
-                "JS_EXEC",                                          // slot 3 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",        // slot 3 msg
+                "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 3
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 4
                 "JS_EXEC",               "SEND_NO_MSG_NONE",        // slot 5
             };
@@ -1764,9 +1744,7 @@ void TestOverrideBasicTelemetryNoGpsButBadJs()
             vector<string> expectedList = {
                 "JS_EXEC",               "SEND_NO_MSG_NONE",                    // slot 1
                 "JS_EXEC",               "SEND_NO_MSG_BAD_JS_NO_ABLE_DEFAULT",  // slot 2
-                "JS_EXEC",                                                      // slot 3 js
-                "TX_DISABLE_GPS_ENABLE",
-                                         "SEND_NO_MSG_NONE",                    // slot 3 msg
+                "JS_EXEC",               "SEND_NO_MSG_NONE",                    // slot 3
                 "JS_EXEC",               "SEND_NO_MSG_NONE",                    // slot 4
                 "JS_EXEC",               "SEND_NO_MSG_NONE",                    // slot 5
             };

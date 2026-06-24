@@ -390,7 +390,7 @@ public:
             auto FnOnFixTime = [this, &scheduler](const FixTime &fixTime){
                 t_.Event("FixTime");
 
-                // cancel timer
+                Log("GPS: time fix acquired (UTC sync OK), cancelling lock-or-die timer");
                 CancelGpsLockOrDieTimer();
 
                 // tell scheduler
@@ -400,8 +400,7 @@ public:
             auto FnOnFix3DPlus = [this, &scheduler](const Fix3DPlus &fix3dPlus){
                 t_.Event("Fix3DPlus");
 
-                // cancel timer
-                CancelGpsLockOrDieTimer();
+                Log("GPS: 3D fix acquired, grid=", fix3dPlus.maidenheadGrid);
 
                 // capture fix
                 fix3dPlus_ = fix3dPlus;
@@ -415,6 +414,7 @@ public:
                 {
                     txCfg.grid = fix3dPlus_.maidenheadGrid;
                     txCfg.Put();
+                    Log("GPS: grid persisted to flash: ", txCfg.grid);
                 }
 
                 // tell scheduler
@@ -424,21 +424,40 @@ public:
             ssGps_.RequestNewFixTimeAnd3DPlus(FnOnFixTime, FnOnFix3DPlus);
             t_.Event("FixRequested");
 
-            // Setup timer to ensure we don't wait forever
+            // Reboot if no time fix within 20 minutes — time sync is essential for WSPR
             StartGpsLockOrDieTimer();
+        });
+
+        // After the first full 10-minute cycle, the 3D fix search window expires.
+        // Cancel the GPS request — this triggers CancelRequestNewGpsLock which shuts GPS off.
+        scheduler.SetCallbackFirstCycleEnd([this, &scheduler]{
+            Log("GPS: first cycle ended — 3D fix search window expired");
+            if (!gotFix3dPlus_)
+            {
+                Configuration &txCfg = ssTx_.GetConfiguration();
+                Log("GPS: no 3D fix obtained, will use fallback grid=", txCfg.grid);
+            }
+            scheduler.CancelRequestNewGpsLock();
         });
 
         scheduler.SetCallbackCancelRequestNewGpsLock([this]{
             t_.Event("CancelReqNewGpsLock");
-
-            // consider whether too much coasting
-            MaybeDieIfTooMuchCoasting();
 
             // indicate idle state
             BlinkerIdle();
 
             // shut off gps
             ssGps_.Disable();
+
+            if (gotFix3dPlus_)
+            {
+                Log("GPS: off — 3D fix was obtained, grid=", fix3dPlus_.maidenheadGrid);
+            }
+            else
+            {
+                Configuration &txCfg = ssTx_.GetConfiguration();
+                Log("GPS: off — no 3D fix obtained, using fallback grid=", txCfg.grid);
+            }
         });
     }
 
@@ -594,84 +613,27 @@ public:
 
 
     /////////////////////////////////////////////////////////////////
-    // GPS health
+    // GPS startup timers
     /////////////////////////////////////////////////////////////////
-    
+
     void StartGpsLockOrDieTimer()
     {
-        static const uint32_t TWENTY_MINUTES = 20 * 60 * 1'000;
+        static const uint32_t TWENTY_MINUTES_MS = 20 * 60 * 1'000;
 
         timerGpsLockOrDie_.SetName("TIMER_GPS_LOCK_OR_DIE");
         timerGpsLockOrDie_.SetCallback([this]{
             LogModeSync();
-
             LogNL();
-            Log("No GPS Lock within ", Time::MakeTimeMMSSmmmFromUs(TWENTY_MINUTES));
-
-            // hard reset GPS
-            Log("Hard Resetting GPS");
+            Log("GPS: no time fix within 20 minutes — hard resetting GPS and rebooting");
             ssGps_.ModuleHardReset();
-
-            // reboot via watchdog kill
-            Log("Rebooting via Watchdog death");
-            while (true)
-            {
-                BlinkerBlinkOncePanic();
-            }
+            while (true) { BlinkerBlinkOncePanic(); }
         });
-        timerGpsLockOrDie_.TimeoutInMs(TWENTY_MINUTES);
+        timerGpsLockOrDie_.TimeoutInMs(TWENTY_MINUTES_MS);
     }
 
     void CancelGpsLockOrDieTimer()
     {
         timerGpsLockOrDie_.Cancel();
-    }
-
-    void MaybeDieIfTooMuchCoasting()
-    {
-        // The strategy around GPS locking has two limits:
-        // - Any attempt at a lock can take no more than the max timeout
-        //   - This applies to getting either a time lock or 3d lock
-        // - The system can coast for no more than 2 consecutive windows
-        //
-        // The consequences are:
-        // - In a default configuration, where 3d fix required, and only coasting
-        //   - the time before reset will be the sum of:
-        //     - duration to get first time lock (less than 20 min)
-        //     - two windows (20 min)
-        //     - duration to learn going to coast again (0 min)
-        //       - this will be within the second window, so zero additional time
-        //     - this is longer than 20 minutes but less than 40
-        //     - this also means the gps will be off/on twice during that time, which
-        //       maybe resolves the issue anyway
-
-        // check if coasting
-        if (gotFix3dPlus_) { coastCount_ = 0; }
-        else               { ++coastCount_;   }
-
-        // reset coast detection state for next window
-        gotFix3dPlus_ = false;
-
-        // consider if coasting too much
-        const uint8_t COAST_COUNT_MAX = 2;
-        if (coastCount_ > COAST_COUNT_MAX)
-        {
-            LogModeSync();
-
-            LogNL();
-            Log("Coast attempt exceeds limit (", coastCount_, " would exceed max of ", COAST_COUNT_MAX, " consecutive)");
-
-            // hard reset GPS
-            Log("Hard Resetting GPS");
-            ssGps_.ModuleHardReset();
-
-            // reboot via watchdog kill
-            Log("Rebooting via Watchdog death");
-            while (true)
-            {
-                BlinkerBlinkOncePanic();
-            }
-        }
     }
 
 
@@ -871,7 +833,6 @@ private:
 
     Fix3DPlus fix3dPlus_;
     bool gotFix3dPlus_ = false;
-    uint8_t coastCount_ = 0;
 
     JSONMsgRouter::Iface router_;
 

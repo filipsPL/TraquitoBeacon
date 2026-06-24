@@ -163,42 +163,6 @@ public:
         Log("Sent");
     }
 
-    void SendTelemetryBasic(string   id13,
-                            string   grid56,
-                            int32_t  altM,
-                            int32_t  tempC,
-                            double   voltage,
-                            uint32_t speedKnots,
-                            bool     gpsValid)
-    {
-        Log("Encoding message");
-        Log("ID13      : ", id13);
-        Log("Grid56    : ", grid56);
-        Log("AltM      : ", altM);
-        Log("TempC     : ", tempC);
-        Log("Voltage   : ", voltage);
-        Log("SpeedKnots: ", speedKnots);
-        Log("GpsValid  : ", gpsValid);
-
-        // fill out encoded message
-        WsprMessageTelemetryBasic msg;
-        msg.SetGrid56(grid56.c_str());
-        msg.SetAltitudeMeters(altM);
-        msg.SetTemperatureCelsius(tempC);
-        msg.SetVoltageVolts(voltage);
-        msg.SetSpeedKnots(speedKnots);
-        msg.SetGpsIsValid(gpsValid);
-
-        msg.SetId13(id13.c_str());
-        msg.Encode();
-
-        // send encoded message
-        Log("Sending encoded msg: ", msg.GetCallsign(), " ", msg.GetGrid4(), " ", msg.GetPowerDbm());
-        SendMessage(msg);
-        Log("Sent");
-        LogNL();
-    }
-
     void SendMessage(const WsprMessageRegularType1 &msg)
     {
         Log("Transmitting WSPR Type1: ", msg.GetCallsign(), " ", msg.GetGrid4(), " ", msg.GetPowerDbm());

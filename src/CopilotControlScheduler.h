@@ -75,6 +75,8 @@ private:
         }
     }
 
+public:
+
     void CancelRequestNewGpsLock()
     {
         Mark("CANCEL_REQ_NEW_GPS_LOCK");
@@ -86,8 +88,6 @@ private:
             fnCbCancelRequestNewGpsLock_();
         }
     }
-
-public:
 
     void SetCallbackRequestNewGpsLock(function<void()> fn)
     {
@@ -205,6 +205,7 @@ private:
     function<void()>             fnCbStartRadioWarmup_  = []{};
     function<void()>             fnCbStopRadio_         = []{};
     function<void(uint8_t slot)> fnCbSetSlotFrequency_  = [](uint8_t){};
+    function<void()>             fnCbFirstCycleEnd_     = []{};
 
     bool RadioIsActive()
     {
@@ -270,6 +271,13 @@ public:
         fnCbSetSlotFrequency_ = fn;
     }
 
+    // Called once, at the end of the first complete 10-minute cycle.
+    // Use this to shut off GPS after the 3D fix search window expires.
+    void SetCallbackFirstCycleEnd(function<void()> fn)
+    {
+        fnCbFirstCycleEnd_ = fn;
+    }
+
 
     /////////////////////////////////////////////////////////////////
     // Callback Setting - Speed Settings
@@ -320,6 +328,7 @@ private:
 
     uint8_t txInterval_  = 1;  // transmit every N windows (1 = every window)
     uint8_t skipCounter_ = 0;  // counts windows since last transmission
+    bool    firstCycle_  = true; // true until the first full 10-min cycle completes
 
 
 public:
@@ -437,7 +446,8 @@ public:
         Mark("START");
 
         Stop();
-        running_ = true;
+        running_    = true;
+        firstCycle_ = true;
 
         RequestNewGpsLock();
 
@@ -624,7 +634,17 @@ private:
 
         inLockout_ = false;
 
-        // run at 48MHz?
+        // On first cycle end, notify caller so GPS can be shut off.
+        // The 3D fix search window (entire first cycle) has now expired.
+        if (firstCycle_)
+        {
+            firstCycle_ = false;
+            Mark("FIRST_CYCLE_END");
+            if (IsTesting() == false)
+            {
+                fnCbFirstCycleEnd_();
+            }
+        }
 
         // apply cached data
         ScheduleApplyCache();
@@ -1238,32 +1258,13 @@ public: // for test running
             TIME_AT_PERIOD5_START_US = TIME_AT_PERIOD4_START_US + DURATION_GAP_US;
         }
 
-        // Schedule GPS Req (and tx disable).
-        //
-        // GPS Req should happen after:
-        // - Final transmission period (GPS can't run at same time as TX).
-        //
-        // This is safe because:
-        // - GPS operation does not interfere with running js.
-        // - GPS new locks won't affect this window's data.
-        //
-        // Schedule event for the same start moment as the final
-        // transmission period itself, knowing that this event,
-        // which is scheduled second, will execute directly
-        // after, which is as early as possible, and what we want.
-        uint64_t TIME_AT_GPS_REQ_US = timeAtWindowStartUs;
-        bool TIME_AT_GPS_REQ_RESCHEDULED = false;
-        if (PeriodWillTransmit(1)) { TIME_AT_GPS_REQ_US = TIME_AT_PERIOD1_START_US; TIME_AT_GPS_REQ_RESCHEDULED = true; }
-        if (PeriodWillTransmit(2)) { TIME_AT_GPS_REQ_US = TIME_AT_PERIOD2_START_US; TIME_AT_GPS_REQ_RESCHEDULED = true; }
-        if (PeriodWillTransmit(3)) { TIME_AT_GPS_REQ_US = TIME_AT_PERIOD3_START_US; TIME_AT_GPS_REQ_RESCHEDULED = true; }
-        if (PeriodWillTransmit(4)) { TIME_AT_GPS_REQ_US = TIME_AT_PERIOD4_START_US; TIME_AT_GPS_REQ_RESCHEDULED = true; }
-        if (PeriodWillTransmit(5)) { TIME_AT_GPS_REQ_US = TIME_AT_PERIOD5_START_US; TIME_AT_GPS_REQ_RESCHEDULED = true; }
-
         // Schedule Lock Out End.
         //
-        // End lockout after Period 5 so all 5 slots (minutes 0,2,4,6,8) can
-        // transmit before the scheduler reschedules the next 10-minute cycle.
-        const uint64_t TIME_AT_SCHEDULE_LOCK_OUT_END_US = TIME_AT_PERIOD5_START_US;
+        // End lockout after Period 5's 2-minute transmission window completes,
+        // so the next cycle is scheduled only after slot 5 has finished transmitting.
+        // Radio runs continuously 1→2→3→4→5 with no StopRadio mid-cycle;
+        // GPS ran once at startup and is now permanently off.
+        const uint64_t TIME_AT_SCHEDULE_LOCK_OUT_END_US = TIME_AT_PERIOD5_START_US + DURATION_TWO_MINUTES_US;
 
 
 
@@ -1299,19 +1300,6 @@ public: // for test running
         Log("    ", Time::MakeDurationFromUs(DURATION_WANT_PRE_WINDOW_US), " early wanted");
         Log("    ", Time::MakeDurationFromUs(DURATION_AVAIL_PRE_WINDOW_US), " early was possible");
         Log("    ", Time::MakeDurationFromUs(DURATION_USE_PRE_WINDOW_US), " early used");
-
-
-
-        // Setup GPS Req for start of window, initially.
-        //
-        // This lets the GPS Req beat Period1 to be executed in the event
-        // that no periods are transmitters (which hold up GPS Req).
-        //
-        // This is adjusted later.
-        // (this could all be done right now, but trying to keep this code
-        //  in the same order as execution)
-        timerTxDisableGpsEnable_.TimeoutAtUs(timeAtWindowStartUs);
-        Log("Scheduled ", TimeAt(timeAtWindowStartUs), " for TX_DISABLE_GPS_ENABLE (initial)");
 
 
 
@@ -1370,24 +1358,6 @@ public: // for test running
         });
         timerPeriod5_.TimeoutAtUs(TIME_AT_PERIOD5_START_US);
         Log("Scheduled ", TimeAt(TIME_AT_PERIOD5_START_US), " for PERIOD5_START");
-
-
-
-        // Setup GPS Req (and tx disable).
-        timerTxDisableGpsEnable_.SetCallback([this]{
-            Mark("TX_DISABLE_GPS_ENABLE");
-
-            // disable transmitter
-            StopRadio();
-
-            // enable gps
-            RequestNewGpsLock();
-        });
-        if (TIME_AT_GPS_REQ_RESCHEDULED)
-        {
-            timerTxDisableGpsEnable_.TimeoutAtUs(TIME_AT_GPS_REQ_US);
-            Log("Scheduled ", TimeAt(TIME_AT_GPS_REQ_US), " for TX_DISABLE_GPS_ENABLE (reschedule)");
-        }
 
 
 
@@ -1490,8 +1460,6 @@ public: // for test running
         timerPeriod4_.SetVisibleInTimeline(false);
         timerPeriod5_.Cancel();
         timerPeriod5_.SetVisibleInTimeline(false);
-        timerTxDisableGpsEnable_.Cancel();
-        timerTxDisableGpsEnable_.SetVisibleInTimeline(false);
         timerScheduleLockOutEnd_.Cancel();
         timerScheduleLockOutEnd_.SetVisibleInTimeline(false);
     }
@@ -1528,7 +1496,6 @@ public: // for test running
             &timerPeriod3_,
             &timerPeriod4_,
             &timerPeriod5_,
-            &timerTxDisableGpsEnable_,
             &timerScheduleLockOutEnd_,
         };
 
@@ -1659,7 +1626,6 @@ public: // for test running
                     &timerPeriod3_,
                     &timerPeriod4_,
                     &timerPeriod5_,
-                    &timerTxDisableGpsEnable_,
                     &timerScheduleLockOutEnd_,
                 };
 
@@ -2030,7 +1996,6 @@ public: // for test running
     Timer timerPeriod3_              = {"TIMER_PERIOD3_START"};
     Timer timerPeriod4_              = {"TIMER_PERIOD4_START"};
     Timer timerPeriod5_              = {"TIMER_PERIOD5_START"};
-    Timer timerTxDisableGpsEnable_   = {"TIMER_TX_DISABLE_GPS_ENABLE"};
     Timer timerScheduleLockOutEnd_   = {"TIMER_SCHEDULE_LOCK_OUT_END"};
 
     Timeline t_;
