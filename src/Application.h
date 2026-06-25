@@ -393,6 +393,18 @@ public:
                 Log("GPS: time fix acquired (UTC sync OK), cancelling lock-or-die timer");
                 CancelGpsLockOrDieTimer();
 
+                // store GPS time for TX messages
+                lastGpsTime_ =
+                    StrUtl::PadLeft(fixTime.hour,   '0', 2) + ":" +
+                    StrUtl::PadLeft(fixTime.minute, '0', 2) + ":" +
+                    StrUtl::PadLeft(fixTime.second, '0', 2);
+
+                // emit GPS_FIX_TIME JSON so the web console shows the fix
+                router_.Send([&](auto &out){
+                    out["type"] = "GPS_FIX_TIME";
+                    out["time"] = lastGpsTime_.c_str();
+                });
+
                 // tell scheduler
                 scheduler.OnGpsTimeLock(fixTime);
             };
@@ -401,6 +413,23 @@ public:
                 t_.Event("Fix3DPlus");
 
                 Log("GPS: 3D fix acquired, grid=", fix3dPlus.maidenheadGrid);
+
+                // store GPS time for TX messages
+                lastGpsTime_ =
+                    StrUtl::PadLeft(fix3dPlus.hour,   '0', 2) + ":" +
+                    StrUtl::PadLeft(fix3dPlus.minute, '0', 2) + ":" +
+                    StrUtl::PadLeft(fix3dPlus.second, '0', 2);
+
+                // emit GPS_FIX_2D and GPS_FIX_3D JSON so the web console shows the fix
+                router_.Send([&](auto &out){
+                    out["type"]   = "GPS_FIX_2D";
+                    out["latDeg"] = fix3dPlus.latDegMillionths / 1'000'000.0;
+                    out["lngDeg"] = fix3dPlus.lngDegMillionths / 1'000'000.0;
+                });
+                router_.Send([&](auto &out){
+                    out["type"]  = "GPS_FIX_3D";
+                    out["altM"]  = fix3dPlus.altitudeM;
+                });
 
                 // capture fix
                 fix3dPlus_ = fix3dPlus;
@@ -586,6 +615,7 @@ public:
             out["callsign"] = txCfg.callsign.c_str();
             out["grid"]     = grid.c_str();
             out["gps"]      = gotFix3dPlus_;
+            out["gpsTime"]  = lastGpsTime_.c_str();
         });
         ssTx_.SendRegularMessage(txCfg.callsign, grid, POWER_DBM);
         router_.Send([&](auto &out){
@@ -833,6 +863,7 @@ private:
 
     Fix3DPlus fix3dPlus_;
     bool gotFix3dPlus_ = false;
+    string lastGpsTime_;
 
     JSONMsgRouter::Iface router_;
 
