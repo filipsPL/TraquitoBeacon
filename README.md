@@ -25,6 +25,15 @@ That (and this) project relies heavily on [picoinf](https://github.com/dmalnati/
 - **Less frequent temperature reading** — polled every 30 seconds instead of every second.
 - **`config.html`** — local web page to configure the beacon over WebSerial (Chrome/Edge 89+).
 
+## Effects
+
+24h stats from wspr.rocks for traquitto beacon with 2x5m wire antenna in the urban settings. Works really well (@ 0.02W)!
+
+| wspr.rocks map | statistics |
+| ---- | ---- |
+| ![map](obrazki/obrazek-README-1.png) | ![24h stats](obrazki/obrazek-README-2.png) |
+
+
 ## Use pre-compiled binaries
 
 Pre-compiled `.uf2` binaries are published in releases: <https://github.com/filipsPL/TraquitoBeacon/releases/>
