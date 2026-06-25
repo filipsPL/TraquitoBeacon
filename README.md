@@ -1,6 +1,9 @@
 # About
 
-This is a modification of the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) firmware to use the same, low cost jetpack hardware but as a regular WSPR beacon. The code is experimental.
+This is a modification of the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) firmware to use the same, low cost jetpack hardware but use it as a regular WSPR beacon. The code is experimental.
+
+> [!CAUTION]
+> This tool (hardware + software) is for amateur radio operators holding an amateur radio licence.
 
 Disclaimer: most of the original code modifications have been vibe-coded using Claude Code.
 
