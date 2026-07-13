@@ -1,38 +1,27 @@
 # About
 
-This is a modification of the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) firmware to use the same, low cost jetpack hardware but use it as a regular WSPR beacon. The code is experimental.
+This is a modification of the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) firmware that turns the same low-cost jetpack hardware into a **mixed-mode HF ground-station beacon**. The code is experimental.
 
-> [!CAUTION]
-> This tool (hardware + software) is for amateur radio operators holding an amateur radio licence.
-
-Disclaimer: most of the original code modifications have been vibe-coded using Claude Code.
+Disclaimer: most of the code modifications have been vibe-coded using Claude Code.
 
 ## About the original code
 
-Source code for the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) — [direct link](https://github.com/dmalnati/TraquitoJetpack/).
+Source code for the original [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) — [direct link](https://github.com/dmalnati/TraquitoJetpack/).
 
 That (and this) project relies heavily on [picoinf](https://github.com/dmalnati/picoinf).
 
 # This fork — summary of changes
 
-- **Multi-band slot scheduling** — 10-minute cycle with 5 independently configurable slots (minutes :00, :02, :04, :06, :08), each with its own band and channel. Leave a slot's band blank to disable it.
-- **Configurable TX interval** — transmit every N cycles (default 1 = every 10 minutes when using all slots, every 2 minutes when only slot 1 is used).
+- **Mixed-mode sequential slot scheduling** — configure an ordered list of up to 16 transmission slots. Each slot independently picks **WSPR-2** (2-minute window), **WSPR-15** (15-minute window), or **CW** (fires immediately after the previous slot ends). Slots fire back-to-back; the scheduler computes the next valid UTC-aligned window for each slot's mode so a mixed schedule "just works".
+- **CW beacon mode** — CW slots auto-generate a K5RWK/B-style beacon message (`VVV DE {call}/B {grid} × 3`) for Reverse Beacon Network spotting. Per-slot frequency (Hz) and WPM are configurable. Fast Si5351 output-enable keying keeps transitions in ~50 µs.
+- **Per-slot UTC alignment** — the scheduler always lands WSPR transmissions on the correct boundary for the slot's mode (even minutes for WSPR-2, multiples of 15 for WSPR-15). CW slots fire immediately with no alignment gap.
+- **Configurable TX interval** — transmit every N cycles (1 = every cycle); a "cycle" is the full sequence of configured slots.
+- **No JavaScript / no telemetry** — the JerryScript VM, per-slot JS, and user-defined telemetry messages have been removed. Only Type 1 Regular WSPR messages (callsign + 4-char grid + power dBm) and CW beacon are transmitted.
+- **Ground-station orientation** — the device is no longer a balloon tracker. The Maidenhead grid is user-entered in configuration; it is **not** auto-overwritten from GPS 3D fixes. CW uses the full 6-char grid; WSPR uses the first 4 chars.
 - **Transmits while USB/serial connected** — no need to disconnect for the scheduler to run.
-- **No telemetry** — only Type 1 Regular WSPR messages (callsign + 4-char grid + power dBm).
-- **One-shot GPS** — on power-on the GPS runs until it acquires a time fix (required to align to WSPR windows) and optionally a 3D position fix (to update the grid locator). After that GPS is permanently shut off; it is never re-enabled during subsequent cycles. The radio runs continuously across all slots with no mid-cycle stop.
-- **Fallback grid** — if no 3D fix is obtained before the first transmission, the last-known grid from flash (or the configured default grid) is used for all subsequent transmissions.
 - **Less verbose GPS output** — raw NMEA `GPS_LINE` messages suppressed; `GPS_FIX_TIME`, `GPS_FIX_2D`, `GPS_FIX_3D` events still emitted.
 - **Less frequent temperature reading** — polled every 30 seconds instead of every second.
-- **`config.html`** — local web page to configure the beacon over WebSerial (Chrome/Edge 89+).
-
-## Effects
-
-24h stats from wspr.rocks for traquitto beacon with 2x5m wire antenna in the urban settings. Works really well (@ 0.02W)!
-
-| wspr.rocks map | statistics |
-| ---- | ---- |
-| ![map](obrazki/obrazek-README-1.png) | ![24h stats](obrazki/obrazek-README-2.png) |
-
+- **`config.html`** — local web page to configure the beacon over Web Serial (Chrome/Edge 89+).
 
 ## Use pre-compiled binaries
 
@@ -43,7 +32,7 @@ To flash a `.uf2` file:
 1. Hold **BOOTSEL** on the Pico while plugging in USB — it mounts as `RPI-RP2`.
 2. Copy `TraquitoJetpack.uf2` to the drive. The device reboots automatically.
 
-> **Note:** After flashing firmware that changes the configuration struct layout, send `{"type":"REQ_DELETE_CONFIG"}` via serial to erase stale flash data, then reconfigure.
+> **Note:** This firmware uses a different on-flash configuration layout than older releases. After flashing, send `{"type":"REQ_DELETE_CONFIG"}` via serial (or click **Erase flash config** in `config.html`) to clear stale data, then reconfigure.
 
 ## How to compile
 
@@ -66,9 +55,7 @@ make -j$(nproc)
 
 Output: `build/src/TraquitoJetpack.uf2`
 
-> **Note:** The build produces a harmless linker error for the standalone `jerry.elf` host binary (a JerryScript test tool). The firmware target `TraquitoJetpack` builds successfully regardless.
-
-> **Note:** The `ext/picoinf` submodule contains local patches required for the Debian/Ubuntu toolchain. See [Build fixes](#build-fixes-for-debianubuntu-gcc-arm-none-eabi-132) below if you reset or update the submodule.
+> **Note:** The `ext/picoinf` submodule contains local patches required for the Debian/Ubuntu toolchain. See [Build fixes](#build-fixes-for-debianubuntu-gcc-arm-none-eabi-132) below if you reset or update the submodule. A patch file capturing all changes is at `ext/picoinf.patch` — apply with `git apply ../../ext/picoinf.patch` from inside `ext/picoinf/`.
 
 ## Configuration
 
@@ -83,19 +70,17 @@ Open `config.html` directly in Chrome or Edge (89+). Click **Connect**, select t
 
 **Configuration fields:**
 
-| Field                | Description                                                   |
-| -------------------- | ------------------------------------------------------------- |
-| Callsign             | Amateur radio callsign (up to 6 characters)                   |
-| Band                 | Primary/fallback band (e.g. `20m`)                            |
-| Channel              | Primary/fallback channel (0–599)                              |
-| Frequency correction | Signed Hz offset to compensate for Si5351 crystal error       |
-| Default grid         | 4-char Maidenhead locator used before GPS 3D fix              |
-| TX interval          | Number of 10-minute cycles between transmissions (default 1)  |
-| Slot schedule        | Per-slot band + channel for each 2-minute window in the cycle |
+| Field                | Description                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| Callsign             | Amateur radio callsign (up to 6 characters)                                                   |
+| Grid                 | Maidenhead locator, up to 6 chars (user-entered; not derived from GPS). WSPR uses first 4; CW beacon uses all 6. |
+| Frequency correction | Signed Hz offset to compensate for Si5351 crystal error                                       |
+| TX interval          | Number of cycles between active cycles (1 = every cycle)                                      |
+| Slot schedule        | Ordered list of slots, each with its own mode (WSPR-2 / WSPR-15 / CW), band, channel or frequency, and WPM |
 
-**Slot schedule table** — each row corresponds to one 2-minute WSPR window within the 10-minute cycle. Leave the Band field blank to disable a slot (no transmission that window).
+**Slot schedule table** — each row is one transmission. The **Fires at** column previews the minute-within-cycle each slot will run, assuming the cycle starts at :00. Use the ↑↓ buttons to reorder slots and × to remove. The cycle length is shown beneath the table (the schedule repeats indefinitely, UTC-aligned).
 
-![slot schedule](obrazki/obrazek-timeslots.png)
+![timeslot diagram](obrazki/obrazek-timeslots.png)
 
 ### Via serial
 
@@ -108,56 +93,97 @@ tio --map INLCRNL,ODELBS --timestamp -e -b 115200 /dev/ttyACM0
 Send JSON commands, e.g.:
 
 ```json
-{"type":"REQ_SET_CONFIG","callsign":"SP5FLS","band":"20m","channel":414,"correction":0,"grid":"IO85","txInterval":1,"slotBands":["20m","10m","","",""],"slotChannels":[414,0,0,0,0]}
+{
+  "type":"REQ_SET_CONFIG",
+  "callsign":"SP5FLS",
+  "correction":0,
+  "grid":"IO85XW",
+  "txInterval":1,
+  "slots":[
+    {"mode":0,"band":"20m","channel":414},
+    {"mode":0,"band":"10m","channel":414},
+    {"mode":1,"band":"20m","channel":5},
+    {"mode":2,"band":"20m","frequencyHz":14025000,"wpm":18}
+  ]
+}
 ```
+
+`mode`: `0` = WSPR-2, `1` = WSPR-15, `2` = CW.
+
+For CW slots: `frequencyHz` is the exact transmit frequency in Hz; `wpm` is the keying speed (5–40). `band` is informational only (used for hardware filter selection).
+
+For WSPR slots: `channel` selects the sub-band frequency via `WsprChannelMap`; `frequencyHz` and `wpm` are ignored.
 
 ## Operational details
 
 ### Scheduling
 
-The scheduler operates on a 10-minute cycle aligned to even UTC minutes (standard WSPR windows). Within each cycle there are 5 slots:
+The scheduler is **sequential and mode-aware**. The user provides an ordered list of slots; the scheduler:
 
-| Slot | UTC minute offset | Configurable |
-| ---- | ----------------- | ------------ |
-| 1    | :00               | Yes          |
-| 2    | :02               | Yes          |
-| 3    | :04               | Yes          |
-| 4    | :06               | Yes          |
-| 5    | :08               | Yes          |
+1. Waits for the next UTC window valid for slot 1's mode (even minute for WSPR-2, multiple of 15 for WSPR-15; immediate for CW).
+2. After slot N's transmission ends, fires slot N+1 at the next valid UTC window for its mode — WSPR-to-WSPR may introduce a gap; CW fires instantly.
+3. When all slots have fired, the cycle ends. The next cycle starts at the next valid UTC alignment for slot 1's mode.
 
-Each slot has its own band and channel. The radio frequency is switched at the start of each slot period. Disabled slots (empty band) are silently skipped — the timer fires but no transmission occurs.
+The radio is warmed up (~30 s) before each slot when there is enough idle time; it is powered off after each slot and again at cycle end.
 
-The **TX interval** setting skips N−1 complete 10-minute cycles between active cycles. At interval=1 every cycle transmits; at interval=2 every other cycle transmits, etc.
+The **TX interval** setting skips N−1 complete cycles between active cycles.
+
+> **Open question / known nuance:** with very short cycles (e.g. 2 × WSPR-2 = 4 min total) `txInterval=15` effectively means "transmit once an hour" — the unit is *cycles*, not minutes.
+
+### CW beacon
+
+CW slots transmit the K5RWK/B-style beacon message:
+
+```
+VVV DE {call}/B {grid} {call}/B {grid} {call}/B {grid}
+```
+
+The message is auto-generated from the configured callsign and grid. At 18 WPM the full message takes approximately 20 seconds. CW Skimmer's optimal range is 15–40 WPM; the `/B` suffix puts spots in RBN's beacon-classified feed.
+
+Recommended CW frequencies for RBN spotting:
+
+| Band | Frequency (Hz) | Rationale |
+|------|---------------|-----------|
+| 30m  | 10 115 000    | CW-only band, best HF skimmer coverage |
+| 20m  | 14 025 000    | Dense skimmer coverage in the CW DX window |
+| 40m  | 7 025 000     | Strong evening skimmer coverage |
 
 ### Frequency
 
-Output frequency is derived entirely from the configured band and channel via `WsprChannelMap`. The **frequency correction** field (Hz) is applied on top to compensate for Si5351 crystal inaccuracy. No frequencies are hardcoded in this repository.
+For WSPR slots, output frequency is derived from each slot's configured band and channel via `WsprChannelMap`. For CW slots, `frequencyHz` is used directly. The **frequency correction** field (Hz) is applied on top of both to compensate for Si5351 crystal inaccuracy.
 
 ### GPS and grid
 
 - The device waits for a GPS time fix (UTC sync) before scheduling any transmissions. A 3D position fix is not required.
 - GPS runs once at startup only. Once a time fix (and optionally a 3D fix) is acquired, GPS is shut off permanently for the remainder of the session.
-- If a 3D fix is obtained, the 4-char Maidenhead grid is updated and persisted to flash before the first transmission.
-- If no 3D fix is obtained before the first transmission, the last-known grid from flash (or the configured default grid) is used for all transmissions.
-- The radio runs continuously across all 5 slots within a cycle with no mid-cycle power-off.
+- The Maidenhead grid used in transmissions is **always** the user-configured value in flash. GPS-derived position is logged but never overwrites the configured grid.
 
 ### Config API
 
 | Command               | Description                                                                                                                    |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `REQ_GET_CONFIG`      | Returns all configuration fields including per-slot arrays                                                                     |
-| `REQ_SET_CONFIG`      | Sets all configuration fields; per-slot `slotBands[]` and `slotChannels[]` are optional (existing values kept if omitted)      |
+| `REQ_GET_CONFIG`      | Returns all configuration fields including the slot list                                                                       |
+| `REQ_SET_CONFIG`      | Sets all configuration fields; the `slots` array fully replaces the prior list                                                 |
 | `REQ_DELETE_CONFIG`   | Erases stored config from flash and resets to defaults. Required after firmware upgrades that change the config struct layout. |
-| `REQ_GET_DEVICE_INFO` | Returns firmware version and current mode                                                                                      |
+| `REQ_GET_DEVICE_INFO` | Returns firmware version and current mode (`CONFIG` or `BEACON`)                                                               |
+| `REQ_WSPR_SEND`       | One-shot test WSPR transmission: `{ band, channel, mode, callsign, grid, power }`                                              |
+| `REQ_RADIO_POWER_ON`  | Enable TX load switch (Si5351 power)                                                                                           |
+| `REQ_RADIO_POWER_OFF` | Disable TX load switch                                                                                                         |
+| `REQ_RADIO_OUTPUT_ENABLE` | Enable TX + start RF output                                                                                               |
+| `REQ_RADIO_OUTPUT_DISABLE` | Stop RF output                                                                                                           |
+| `REQ_SET_CONFIG_TEMP` | Temporary calibration setup (not saved to flash): `{ band, channel, correction }`                                             |
+| `REQ_GPS_RESET`       | Send GPS reset command: `{ temp: "hot" \| "warm" \| "cold" }`                                                                |
+| `REQ_GPS_POWER_ON`    | Power on GPS module                                                                                                            |
+| `REQ_GPS_POWER_OFF`   | Power off GPS module (battery remains on)                                                                                      |
+| `REQ_GPS_POWER_OFF`   | Power off GPS module including battery backup                                                                                  |
 
 ## Build fixes for Debian/Ubuntu (gcc-arm-none-eabi 13.2)
 
-The `ext/picoinf` submodule required local patches to build on a standard Debian/Ubuntu toolchain. These patches are not upstream — reapply them if you reset or update the submodule.
+The `ext/picoinf` submodule required local patches to build on a standard Debian/Ubuntu toolchain. These patches are not upstream — reapply them if you reset or update the submodule. The full patch is committed to the repo as `ext/picoinf.patch`.
 
 **Root causes:**
 
 - The packaged `gcc-arm-none-eabi` uses its own internal `stdint.h` rather than newlib's, so `__int64_t_defined` is never set, causing `PRIu64`/`SCNu*` macros from newlib's `inttypes.h` to be undefined even after `#include <cinttypes>`.
-- JerryScript's heap size (default 512 KB) was not being overridden correctly due to CMake cache variable precedence, causing the firmware's BSS to overflow Pico RAM by ~348 KB.
 - WsprEncoded unit tests were being compiled and cross-linked with the ARM toolchain (missing POSIX syscalls).
 - `clock_handle_t` was renamed to `enum clock_index` in the pico-sdk version used here.
 - `Time.h` was renamed to `TimeClass.h` in picoinf.
@@ -166,11 +192,11 @@ The `ext/picoinf` submodule required local patches to build on a standard Debian
 
 | File                                         | Change                                                                                                       |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `ext/picoinf/CMakeLists.txt`                 | Add `__STDC_FORMAT_MACROS` compile definition; use `CACHE STRING "" FORCE` for JerryScript heap/stack limits |
+| `ext/picoinf/CMakeLists.txt`                 | Add `__STDC_FORMAT_MACROS` compile definition                                                                |
 | `ext/picoinf/ext/WsprEncoded/CMakeLists.txt` | Suppress `-Werror=stringop-truncation`; skip `test/` subdirectory when not top-level project                 |
 | `ext/picoinf/src/App/Log/Log.cpp`            | Replace `PRIu64`/`PRId64` with `%llu`/`%lld`                                                                 |
 | `ext/picoinf/src/App/Utl/UtlString.h`        | Add `#include <cstdint>`                                                                                     |
 | `ext/picoinf/src/App/Utl/UtlString.cpp`      | Replace `PRIu64` with `%llu`                                                                                 |
 | `ext/picoinf/src/App/Service/TimeClass.cpp`  | Replace `SCNu*` macros with `%u` and explicit casts                                                          |
 | `ext/picoinf/src/App/Peripheral/Clock.cpp`   | Replace `clock_handle_t` with `enum clock_index`                                                             |
-| `src/Application.h`                          | `#include "Time.h"` → `#include "TimeClass.h"`                                                               |
+| `ext/picoinf/src/WSPR/WSPRMessageTransmitter.h` | Add `void Key(bool on)` for fast CW keying via output_enable toggle                                      |

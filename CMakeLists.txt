@@ -19,7 +19,7 @@ project(TraquitoJetpack LANGUAGES C CXX ASM)
 
 # Configure and add picoinf
 set(APP_BUILD_VERSION "2025-12-09 23:04:00")
-set(PICO_INF_ENABLE_JERRYSCRIPT 1)
+set(PICO_INF_ENABLE_JERRYSCRIPT 0)
 add_subdirectory(ext/picoinf)
 
 # Add source

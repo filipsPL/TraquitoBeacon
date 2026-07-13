@@ -32,7 +32,7 @@ public:
         EnterMonitorMode();
     }
 
-    void EnableFlightMode()
+    void EnableBeaconMode()
     {
         EnableInternal(false);
     }
@@ -107,11 +107,6 @@ public:
         });
     }
 
-    void CancelNewFix3DPlus()
-    {
-        gpsReader_.UnSetCallbackOnFix3DPlus();
-    }
-
     void EnterMonitorMode()
     {
         Log("GPS Monitor Mode");
@@ -131,12 +126,6 @@ public:
 
         ModulePowerOffBatteryOn();
     }
-
-    GPSReader &GetGPSReader()
-    {
-        return gpsReader_;
-    }
-    
 
 private:
 
@@ -463,9 +452,9 @@ private:
             else                    { ModulePowerOffBatteryOn(); }
         }, { .argCount = 1, .help = "gps subsystem <on/off>"});
 
-        Shell::AddCommand("app.ss.gps.flightmode", [this](vector<string> argList){
-            EnableFlightMode();
-        }, { .argCount = 0, .help = "gps enable flight mode"});
+        Shell::AddCommand("app.ss.gps.beaconmode", [this](vector<string> argList){
+            EnableBeaconMode();
+        }, { .argCount = 0, .help = "gps enable beacon mode"});
 
         Shell::AddCommand("app.ss.gps.hardreset", [this](vector<string> argList){
             ModuleHardReset();

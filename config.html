@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Modified Traquito Jetpack Configurator</title>
+<title>Traquito Jetpack — Ground-Station Beacon</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; }
@@ -15,46 +15,54 @@
 
   main { display: flex; flex: 1; overflow: hidden; }
 
-  /* LEFT PANEL */
-  .panel { width: 340px; min-width: 280px; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; overflow-y: auto; padding: 16px; gap: 16px; }
+  .panel { min-width: 620px; background: #16213e; border-right: 1px solid #0f3460; display: flex; flex-direction: column; overflow-y: auto; padding: 16px; gap: 16px; }
 
   .card { background: #0f3460; border-radius: 6px; padding: 14px; }
   .card h2 { font-size: 0.7rem; color: #e94560; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; }
 
   .field { margin-bottom: 10px; }
   .field label { display: block; font-size: 0.7rem; color: #888; margin-bottom: 4px; }
-  .field input { width: 100%; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 6px 8px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; }
-  .field input:focus { outline: none; border-color: #e94560; }
-  .slot-input { width: 100%; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 4px 6px; border-radius: 4px; font-family: monospace; font-size: 0.82rem; }
-  .slot-input:focus { outline: none; border-color: #e94560; }
-  td { padding: 3px 4px; }
+  .field input, .field select { width: 100%; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 6px 8px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; }
+  .field input:focus, .field select:focus { outline: none; border-color: #e94560; }
   .field input.ok { border-color: #4caf82; }
   .field input.err { border-color: #e94560; }
+
+  table.slots { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-top: 4px; }
+  table.slots th { color: #888; font-weight: normal; text-align: left; padding: 2px 4px; }
+  table.slots td { padding: 3px 4px; vertical-align: middle; }
+  table.slots input, table.slots select { width: 100%; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 4px 6px; border-radius: 4px; font-family: monospace; font-size: 0.82rem; }
+  table.slots input:focus, table.slots select:focus { outline: none; border-color: #e94560; }
+  td.fires { color: #aaa; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.actions { white-space: nowrap; }
+  td.actions button { background: #1a1a2e; border: 1px solid #0f3460; color: #aaa; padding: 2px 6px; margin: 0 1px; font-family: monospace; font-size: 0.78rem; cursor: pointer; border-radius: 3px; width: auto; }
+  td.actions button:hover { color: #fff; border-color: #e94560; }
+  td.actions button.del:hover { color: #e94560; }
 
   button { background: #e94560; color: white; border: none; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 0.8rem; width: 100%; margin-top: 4px; }
   button:hover { background: #c73652; }
   button:disabled { background: #444; color: #666; cursor: default; }
   button.secondary { background: #0f3460; border: 1px solid #e94560; color: #e94560; }
   button.secondary:hover { background: #1a4070; }
+  button.add { background: #0f3460; border: 1px dashed #4caf82; color: #4caf82; margin-top: 8px; }
+  button.add:hover { background: #1a4070; }
 
   .row { display: flex; gap: 8px; }
   .row button { flex: 1; margin-top: 0; }
 
+  .cyclehint { font-size: 0.7rem; color: #4caf82; margin-top: 6px; padding: 4px 6px; background: rgba(76,175,130,0.08); border-left: 2px solid #4caf82; }
+
   #callsignStatus { font-size: 0.7rem; margin-top: 4px; }
 
-  /* STATUS INDICATORS */
   .indicators { display: flex; gap: 8px; flex-wrap: wrap; }
   .indicator { flex: 1; min-width: 80px; background: #1a1a2e; border-radius: 4px; padding: 8px; text-align: center; }
   .indicator .val { font-size: 1.1rem; color: #4caf82; }
   .indicator .lbl { font-size: 0.65rem; color: #888; margin-top: 2px; }
 
-  /* RIGHT PANEL: LOG */
   .log-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .log-toolbar { background: #16213e; padding: 8px 14px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #0f3460; }
   .log-toolbar span { font-size: 0.75rem; color: #888; margin-right: auto; }
   .log-toolbar button { width: auto; margin: 0; padding: 4px 10px; font-size: 0.75rem; }
 
-  /* filter checkboxes */
   .filter-group { display: flex; gap: 10px; flex-wrap: wrap; }
   .filter-group label { font-size: 0.72rem; color: #aaa; display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
   .filter-group input[type=checkbox] { accent-color: #e94560; }
@@ -74,57 +82,54 @@
 <body>
 
 <header>
-  <h1>Traquito Jetpack</h1>
+  <h1>Traquito Jetpack — Ground-Station Beacon</h1>
   <span id="statusBadge">DISCONNECTED</span>
   <button id="btnConnect" style="width:auto;margin:0;padding:5px 14px;">Connect</button>
 </header>
 
 <main>
-  <!-- LEFT: CONFIG + STATUS -->
   <div class="panel">
 
     <div class="card">
-      <h2>Configuration</h2>
+      <h2>Identity</h2>
       <div class="field">
         <label>Callsign</label>
         <input id="cfgCallsign" type="text" placeholder="e.g. SP5FLS" maxlength="6">
         <div id="callsignStatus"></div>
       </div>
       <div class="field">
-        <label>Band (primary / fallback)</label>
-        <input id="cfgBand" type="text" value="20m" maxlength="4">
-      </div>
-      <div class="field">
-        <label>Channel (primary / fallback, 0–599)</label>
-        <input id="cfgChannel" type="number" min="0" max="599" value="414">
-      </div>
-      <div class="field">
-        <label>Slot schedule (leave Band blank to disable slot)</label>
-        <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin-top:4px;">
-          <thead>
-            <tr>
-              <th style="color:#888;font-weight:normal;text-align:left;padding:2px 4px;">Min</th>
-              <th style="color:#888;font-weight:normal;text-align:left;padding:2px 4px;">Band</th>
-              <th style="color:#888;font-weight:normal;text-align:left;padding:2px 4px;">Channel</th>
-            </tr>
-          </thead>
-          <tbody id="slotTableBody">
-          </tbody>
-        </table>
+        <label>Grid (4- or 6-char Maidenhead, user-entered)</label>
+        <input id="cfgGrid" type="text" placeholder="e.g. IO85XW" maxlength="6">
       </div>
       <div class="field">
         <label>Frequency correction (Hz)</label>
         <input id="cfgCorrection" type="number" value="0">
       </div>
-      <div class="field">
-        <label>Default grid (4-char Maidenhead)</label>
-        <input id="cfgGrid" type="text" placeholder="e.g. IO85" maxlength="4">
-      </div>
-      <div class="field">
-        <label>TX interval (cycles, 1 = every 2 min)</label>
+    </div>
+
+    <div class="card">
+      <h2>Slot Schedule</h2>
+      <table class="slots">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Mode</th>
+            <th>Band</th>
+            <th>Ch / Freq (Hz)</th>
+            <th>WPM</th>
+            <th>Fires at</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="slotTableBody"></tbody>
+      </table>
+      <button class="add" id="btnAddSlot">+ Add slot</button>
+      <div class="cyclehint" id="cycleHint">No slots — add one to begin</div>
+      <div class="field" style="margin-top:10px">
+        <label>TX interval (cycles, 1 = every cycle)</label>
         <input id="cfgTxInterval" type="number" min="1" max="255" value="1">
       </div>
-      <div class="row">
+      <div class="row" style="margin-top:8px">
         <button id="btnGetConfig" class="secondary" disabled>Read</button>
         <button id="btnSetConfig" disabled>Save</button>
       </div>
@@ -166,7 +171,6 @@
 
   </div>
 
-  <!-- RIGHT: LOG -->
   <div class="log-panel">
     <div class="log-toolbar">
       <span>Serial log</span>
@@ -184,35 +188,185 @@
 </main>
 
 <script>
-// ── Slot table ───────────────────────────────────────────────────────────────
-const SLOT_COUNT = 5;
+// ── Slot model (in-memory; rendered into the table) ──────────────────────────
+//   mode: 0 = WSPR-2, 1 = WSPR-15, 2 = CW
+const SLOT_MAX = 16;
+let slotList = [];   // [{ mode, band, channel, frequencyHz, wpm }]
 
-function buildSlotTable() {
+// Alignment in minutes (CW = 0, fires immediately after previous slot ends).
+function alignmentMin(mode) {
+  if (mode === 2) return 0;     // CW
+  return mode === 1 ? 15 : 2;   // WSPR-15 or WSPR-2
+}
+
+// Estimate CW beacon transmission time in seconds.
+// Mirrors firmware CwEncoder: dit = 1200/wpm ms, PARIS-standard timing.
+// Message format: "VVV DE {call}/B {grid} {call}/B {grid} {call}/B {grid}"
+function cwBeaconDurationSec(wpm, call, grid) {
+  const dit = Math.floor(1200 / Math.max(1, wpm || 18));  // mirror firmware integer division
+  const text = 'VVV DE ' + (call || 'CALL') + '/B ' + (grid || 'GRID') + ' '
+             + (call || 'CALL') + '/B ' + (grid || 'GRID') + ' '
+             + (call || 'CALL') + '/B ' + (grid || 'GRID');
+  let units = 0;
+  let prevWasSpace = true;
+  const MORSE = {A:'.-',B:'-...',C:'-.-.',D:'-..',E:'.',F:'..-.',G:'--.',H:'....',
+    I:'..',J:'.---',K:'-.-',L:'.-..',M:'--',N:'-.',O:'---',P:'.--.',Q:'--.-',
+    R:'.-.',S:'...',T:'-',U:'..-',V:'...-',W:'.--',X:'-..-',Y:'-.--',Z:'--..',
+    '0':'-----','1':'.----','2':'..---','3':'...--','4':'....-','5':'.....',
+    '6':'-....','7':'--...','8':'---..',9:'----.','/':'-..-.','?':'..--..'};
+  for (const ch of text.toUpperCase()) {
+    if (ch === ' ') { if (!prevWasSpace) units += 7; prevWasSpace = true; continue; }
+    const code = MORSE[ch]; if (!code) continue;
+    if (!prevWasSpace) units += 3;
+    prevWasSpace = false;
+    let first = true;
+    for (const el of code) { if (!first) units += 1; units += el === '.' ? 1 : 3; first = false; }
+  }
+  return Math.ceil(units * dit / 1000);
+}
+
+// Slot duration in seconds (CW uses computed length, WSPR uses 120/900 s).
+function slotDurationSec(s) {
+  if (s.mode === 2) {
+    const wpm  = s.wpm || 18;
+    const call = (document.getElementById('cfgCallsign')?.value || '').trim() || 'CALL';
+    const grid = (document.getElementById('cfgGrid')?.value || '').trim() || 'GRID';
+    return cwBeaconDurationSec(wpm, call, grid) + 1;  // +1 s pad matches firmware
+  }
+  return s.mode === 1 ? 900 : 120;
+}
+
+// Compute fire-times sequentially. Returns [{ minute, second }] + cycleMins.
+// Mirrors firmware Scheduler::ComputeCycleFires.
+function computeFires(slots) {
+  let cursorSecTotal = 0;
+  const out = [];
+  for (const s of slots) {
+    const align = alignmentMin(s.mode);
+    let cursorMin = Math.floor(cursorSecTotal / 60);
+    let cursorSec = cursorSecTotal % 60;
+    let deltaSec;
+    if (align === 0) {
+      deltaSec = 0;  // CW: fires immediately
+    } else {
+      let diff = align - (cursorMin % align);
+      if (diff === align) diff = 0;
+      let secDiff = 1 - cursorSec;
+      let total = diff * 60 + secDiff;
+      if (total < 0) total += align * 60;
+      deltaSec = total;
+    }
+    cursorSecTotal += deltaSec;
+    const fireMinTotal = Math.floor(cursorSecTotal / 60);
+    out.push({ minute: fireMinTotal, second: cursorSecTotal % 60 });
+    cursorSecTotal += slotDurationSec(s);
+  }
+  return { fires: out, cycleMins: Math.ceil(cursorSecTotal / 60) };
+}
+
+function fmtMinSec(m, s) {
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+function renderSlots() {
   const tbody = document.getElementById('slotTableBody');
   tbody.innerHTML = '';
-  for (let i = 0; i < SLOT_COUNT; i++) {
+  const { fires, cycleMins } = computeFires(slotList);
+
+  for (let i = 0; i < slotList.length; i++) {
+    const s = slotList[i];
     const tr = document.createElement('tr');
+    const f = fires[i];
+    const isCw = s.mode === 2;
+    const chOrFreqCell = isCw
+      ? `<input data-i="${i}" data-k="frequencyHz" type="number" min="1000000" max="30000000" step="1" value="${s.frequencyHz || 14025000}" title="CW transmit frequency (Hz)">`
+      : `<input data-i="${i}" data-k="channel" type="number" min="0" max="599" value="${s.channel || 0}">`;
+    const wpmCell = isCw
+      ? `<input data-i="${i}" data-k="wpm" type="number" min="5" max="40" value="${s.wpm || 18}">`
+      : `<span style="color:#555">—</span>`;
     tr.innerHTML =
-      `<td style="color:#aaa">:${String(i * 2).padStart(2,'0')}</td>` +
-      `<td><input class="slot-input" id="slotBand${i}" type="text" maxlength="4" placeholder="e.g. 20m"></td>` +
-      `<td><input class="slot-input" id="slotCh${i}" type="number" min="0" max="599" value="0"></td>`;
+      `<td style="color:#888">${i + 1}</td>` +
+      `<td><select data-i="${i}" data-k="mode">
+         <option value="0"${s.mode === 0 ? ' selected' : ''}>WSPR-2</option>
+         <option value="1"${s.mode === 1 ? ' selected' : ''}>WSPR-15</option>
+         <option value="2"${s.mode === 2 ? ' selected' : ''}>CW</option>
+       </select></td>` +
+      `<td><input data-i="${i}" data-k="band" type="text" maxlength="4" value="${s.band || ''}" placeholder="20m"></td>` +
+      `<td>${chOrFreqCell}</td>` +
+      `<td>${wpmCell}</td>` +
+      `<td class="fires">${fmtMinSec(f.minute, f.second)}</td>` +
+      `<td class="actions">` +
+        `<button data-act="up"   data-i="${i}" title="Move up">↑</button>` +
+        `<button data-act="down" data-i="${i}" title="Move down">↓</button>` +
+        `<button data-act="del"  data-i="${i}" class="del" title="Remove">×</button>` +
+      `</td>`;
     tbody.appendChild(tr);
   }
-}
-buildSlotTable();
 
-function getSlotBands() {
-  return Array.from({length: SLOT_COUNT}, (_, i) => document.getElementById('slotBand' + i).value.trim());
+  // Cycle hint
+  const hint = document.getElementById('cycleHint');
+  if (slotList.length === 0) {
+    hint.textContent = 'No slots — add one to begin';
+  } else {
+    const h = Math.floor(cycleMins / 60);
+    const m = cycleMins % 60;
+    const dur = h > 0 ? `${h}h ${m}m` : `${m} min`;
+    hint.textContent = `Cycle length: ${dur} (then repeats from start, UTC-aligned)`;
+  }
+
+  // wire change handlers
+  tbody.querySelectorAll('select[data-i], input[data-i]').forEach(el => {
+    el.addEventListener('change', onSlotFieldChange);
+    if (el.tagName === 'INPUT') el.addEventListener('input', onSlotFieldChange);
+  });
+  tbody.querySelectorAll('button[data-act]').forEach(b => b.addEventListener('click', onSlotAction));
 }
-function getSlotChannels() {
-  return Array.from({length: SLOT_COUNT}, (_, i) => parseInt(document.getElementById('slotCh' + i).value, 10) || 0);
+
+function onSlotFieldChange(e) {
+  const i = +e.target.dataset.i, k = e.target.dataset.k;
+  if (k === 'mode')         slotList[i].mode        = +e.target.value;
+  else if (k === 'channel') slotList[i].channel     = parseInt(e.target.value, 10) || 0;
+  else if (k === 'frequencyHz') slotList[i].frequencyHz = parseInt(e.target.value, 10) || 0;
+  else if (k === 'wpm')     slotList[i].wpm         = parseInt(e.target.value, 10) || 18;
+  else                      slotList[i][k]          = e.target.value;
+  // mode change adds/removes columns → full rerender; other field edits just update timing preview.
+  if (k === 'mode') renderSlots();
+  else updateCycleHintLive();
 }
-function setSlotValues(bands, channels) {
-  for (let i = 0; i < SLOT_COUNT; i++) {
-    document.getElementById('slotBand' + i).value = (bands && bands[i]) ? bands[i] : '';
-    document.getElementById('slotCh' + i).value   = (channels && channels[i] != null) ? channels[i] : 0;
+
+function updateCycleHintLive() {
+  // lightweight: only update the fires column + cycle hint without rebuilding inputs
+  const { fires, cycleMins } = computeFires(slotList);
+  document.querySelectorAll('#slotTableBody tr').forEach((tr, i) => {
+    const cell = tr.querySelector('td.fires');
+    if (cell && fires[i]) cell.textContent = fmtMinSec(fires[i].minute, fires[i].second);
+  });
+  const hint = document.getElementById('cycleHint');
+  if (slotList.length > 0) {
+    const h = Math.floor(cycleMins / 60);
+    const m = cycleMins % 60;
+    const dur = h > 0 ? `${h}h ${m}m` : `${m} min`;
+    hint.textContent = `Cycle length: ${dur} (then repeats from start, UTC-aligned)`;
   }
 }
+
+function onSlotAction(e) {
+  const i = +e.target.dataset.i, act = e.target.dataset.act;
+  if (act === 'del')  { slotList.splice(i, 1); }
+  if (act === 'up'   && i > 0) { [slotList[i-1], slotList[i]] = [slotList[i], slotList[i-1]]; }
+  if (act === 'down' && i < slotList.length - 1) { [slotList[i], slotList[i+1]] = [slotList[i+1], slotList[i]]; }
+  renderSlots();
+}
+
+document.getElementById('btnAddSlot').addEventListener('click', () => {
+  if (slotList.length >= SLOT_MAX) return;
+  slotList.push({ mode: 0, band: '20m', channel: 0, frequencyHz: 14025000, wpm: 18 });
+  renderSlots();
+});
+
+renderSlots();
 
 // ── Serial state ────────────────────────────────────────────────────────────
 let port = null;
@@ -220,20 +374,15 @@ let writer = null;
 let readLoopRunning = false;
 let lineBuffer = '';
 
-const btnConnect    = document.getElementById('btnConnect');
-const statusBadge   = document.getElementById('statusBadge');
-const btnGetConfig  = document.getElementById('btnGetConfig');
-const btnSetConfig  = document.getElementById('btnSetConfig');
+const btnConnect      = document.getElementById('btnConnect');
+const statusBadge     = document.getElementById('statusBadge');
+const btnGetConfig    = document.getElementById('btnGetConfig');
+const btnSetConfig    = document.getElementById('btnSetConfig');
 const btnDeleteConfig = document.getElementById('btnDeleteConfig');
-const logEl         = document.getElementById('log');
+const logEl           = document.getElementById('log');
 
-// ── Connect / Disconnect ─────────────────────────────────────────────────────
 btnConnect.addEventListener('click', async () => {
-  if (port) {
-    await disconnect();
-  } else {
-    await connect();
-  }
+  if (port) await disconnect(); else await connect();
 });
 
 async function connect() {
@@ -271,7 +420,6 @@ function setError(msg) {
   appendLog('ERROR', msg);
 }
 
-// ── Read loop ────────────────────────────────────────────────────────────────
 async function readLoop() {
   readLoopRunning = true;
   const decoder = new TextDecoder();
@@ -299,45 +447,43 @@ async function readLoop() {
   }
 }
 
-// ── JSON send ────────────────────────────────────────────────────────────────
 async function sendJSON(obj) {
   if (!writer) return;
   const line = JSON.stringify(obj) + '\n';
   await writer.write(new TextEncoder().encode(line));
 }
 
-// ── Incoming message handler ─────────────────────────────────────────────────
 function handleLine(line) {
   let obj = null;
   try { obj = JSON.parse(line); } catch(_) {}
 
-  if (!obj) {
-    appendLog('INFO', line);
-    return;
-  }
+  if (!obj) { appendLog('INFO', line); return; }
 
   const t = obj.type || '';
 
-  // Update UI widgets
   if (t === 'REP_GET_CONFIG' || t === 'REP_SET_CONFIG') {
     if (t === 'REP_GET_CONFIG' || obj.ok) {
-      document.getElementById('cfgCallsign').value   = obj.callsign   ?? '';
-      document.getElementById('cfgBand').value       = obj.band       ?? '20m';
-      document.getElementById('cfgChannel').value    = obj.channel    ?? 0;
-      document.getElementById('cfgCorrection').value = obj.correction ?? 0;
-      document.getElementById('cfgGrid').value       = obj.grid       ?? '';
-      document.getElementById('cfgTxInterval').value = obj.txInterval ?? 1;
-      setSlotValues(obj.slotBands, obj.slotChannels);
+      if (obj.callsign   !== undefined) document.getElementById('cfgCallsign').value   = obj.callsign;
+      if (obj.correction !== undefined) document.getElementById('cfgCorrection').value = obj.correction;
+      if (obj.grid       !== undefined) document.getElementById('cfgGrid').value       = obj.grid;
+      if (obj.txInterval !== undefined) document.getElementById('cfgTxInterval').value = obj.txInterval;
+      if (Array.isArray(obj.slots)) {
+        slotList = obj.slots.map(s => ({
+          mode:        s.mode === 2 ? 2 : (s.mode === 1 ? 1 : 0),
+          band:        s.band || '',
+          channel:     s.channel | 0,
+          frequencyHz: (s.frequencyHz | 0) || 14025000,
+          wpm:         (s.wpm | 0) || 18,
+        }));
+        renderSlots();
+      }
       updateCallsignStatus(obj.callsignOk);
     }
     appendLog('CONFIG', line);
     return;
   }
 
-  if (t === 'REP_DELETE_CONFIG') {
-    appendLog('CONFIG', line);
-    return;
-  }
+  if (t === 'REP_DELETE_CONFIG') { appendLog('CONFIG', line); return; }
 
   if (t === 'REP_GET_DEVICE_INFO') {
     document.getElementById('indVersion').textContent = obj.swVersion ?? '?';
@@ -351,22 +497,18 @@ function handleLine(line) {
     appendLog('GPS_FIX_TIME', line);
     return;
   }
-
   if (t === 'GPS_FIX_2D') {
     document.getElementById('gpsLat').textContent = obj.latDeg != null ? obj.latDeg.toFixed(5) : '—';
     document.getElementById('gpsLng').textContent = obj.lngDeg != null ? obj.lngDeg.toFixed(5) : '—';
-    // Compute 4-char Maidenhead from lat/lng
     document.getElementById('gpsGrid').textContent = latLngToGrid(obj.latDeg, obj.lngDeg);
     appendLog('GPS_FIX_2D', line);
     return;
   }
-
   if (t === 'GPS_FIX_3D') {
     document.getElementById('gpsAlt').textContent = obj.altM ?? '—';
     appendLog('GPS_FIX_3D', line);
     return;
   }
-
   if (t === 'TEMP') {
     document.getElementById('tempC').textContent = obj.tempC != null ? obj.tempC.toFixed(1) : '—';
     document.getElementById('tempF').textContent = obj.tempF != null ? obj.tempF.toFixed(1) : '—';
@@ -374,33 +516,20 @@ function handleLine(line) {
     return;
   }
 
-  // TX-related
   if (t === 'TX_START') {
-    if (obj.gpsTime) {
-      document.getElementById('gpsTime').textContent = obj.gpsTime;
-    }
+    if (obj.gpsTime) document.getElementById('gpsTime').textContent = obj.gpsTime;
     appendLog('TX', line);
     return;
   }
-  if (t === 'TX_DONE' || t === 'REP_WSPR_SEND') {
-    appendLog('TX', line);
-    return;
-  }
+  if (t === 'TX_DONE' || t === 'REP_WSPR_SEND') { appendLog('TX', line); return; }
 
   appendLog('OTHER', line);
 }
 
-// ── Log display ───────────────────────────────────────────────────────────────
 const filterMap = {
-  GPS_FIX_TIME: 'fGps',
-  GPS_FIX_2D:   'fGps',
-  GPS_FIX_3D:   'fGps',
-  TEMP:         'fTemp',
-  TX:           'fTx',
-  CONFIG:       'fConfig',
-  ERROR:        'fOther',
-  INFO:         'fOther',
-  OTHER:        'fOther',
+  GPS_FIX_TIME: 'fGps', GPS_FIX_2D: 'fGps', GPS_FIX_3D: 'fGps',
+  TEMP: 'fTemp', TX: 'fTx', CONFIG: 'fConfig',
+  ERROR: 'fOther', INFO: 'fOther', OTHER: 'fOther',
 };
 
 function appendLog(cls, text) {
@@ -415,10 +544,8 @@ function appendLog(cls, text) {
   div.textContent = '[' + ts + '] ' + text;
   logEl.appendChild(div);
 
-  // keep max 2000 lines
   while (logEl.childElementCount > 2000) logEl.removeChild(logEl.firstChild);
 
-  // auto-scroll only if near bottom
   if (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80) {
     logEl.scrollTop = logEl.scrollHeight;
   }
@@ -426,20 +553,22 @@ function appendLog(cls, text) {
 
 document.getElementById('btnClearLog').addEventListener('click', () => { logEl.innerHTML = ''; });
 
-// ── Config buttons ────────────────────────────────────────────────────────────
 btnGetConfig.addEventListener('click', () => sendJSON({ type: 'REQ_GET_CONFIG' }));
 
 btnSetConfig.addEventListener('click', () => {
   sendJSON({
     type:       'REQ_SET_CONFIG',
-    callsign:     document.getElementById('cfgCallsign').value.trim().toUpperCase(),
-    band:         document.getElementById('cfgBand').value.trim(),
-    channel:      parseInt(document.getElementById('cfgChannel').value, 10),
-    correction:   parseInt(document.getElementById('cfgCorrection').value, 10),
-    grid:         document.getElementById('cfgGrid').value.trim().toUpperCase(),
-    txInterval:   Math.max(1, parseInt(document.getElementById('cfgTxInterval').value, 10) || 1),
-    slotBands:    getSlotBands(),
-    slotChannels: getSlotChannels(),
+    callsign:   document.getElementById('cfgCallsign').value.trim().toUpperCase(),
+    correction: parseInt(document.getElementById('cfgCorrection').value, 10),
+    grid:       document.getElementById('cfgGrid').value.trim().toUpperCase(),
+    txInterval: Math.max(1, parseInt(document.getElementById('cfgTxInterval').value, 10) || 1),
+    slots: slotList.map(s => ({
+      mode:        s.mode,
+      band:        (s.band || '').trim(),
+      channel:     parseInt(s.channel, 10) || 0,
+      frequencyHz: parseInt(s.frequencyHz, 10) || 0,
+      wpm:         parseInt(s.wpm, 10) || 18,
+    })),
   });
 });
 
@@ -449,10 +578,7 @@ btnDeleteConfig.addEventListener('click', () => {
   }
 });
 
-// Live callsign validation
-document.getElementById('cfgCallsign').addEventListener('input', e => {
-  updateCallsignStatus(null); // unknown until device confirms
-});
+document.getElementById('cfgCallsign').addEventListener('input', () => updateCallsignStatus(null));
 
 function updateCallsignStatus(ok) {
   const el = document.getElementById('callsignStatus');
@@ -462,7 +588,6 @@ function updateCallsignStatus(ok) {
   else                   { el.textContent = ''; input.className=''; }
 }
 
-// ── Maidenhead grid helper ─────────────────────────────────────────────────────
 function latLngToGrid(lat, lng) {
   if (lat == null || lng == null) return '—';
   lng += 180; lat += 90;
@@ -473,7 +598,6 @@ function latLngToGrid(lat, lng) {
   return String.fromCharCode(65+A, 65+B, 48+C, 48+D);
 }
 
-// ── Web Serial availability check ─────────────────────────────────────────────
 if (!('serial' in navigator)) {
   statusBadge.textContent = 'NOT SUPPORTED';
   statusBadge.className   = 'error';

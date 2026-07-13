@@ -6,10 +6,8 @@
 #include "WSPRMessageTransmitter.h"
 
 #include "Configuration.h"
-
-
-// Do we want a warmup period before sending?
-// I want a nice stable frequency
+#include "CwEncoder.h"
+#include "Scheduler.h"
 
 
 class SubsystemTx
@@ -24,40 +22,38 @@ public:
         SetupJSON();
     }
 
-    bool ReadyToFly()
+    bool ReadyToBeacon()
     {
         bool retVal = true;
 
         if (cfg_.Get() != true)
         {
             retVal = false;
-
-            Log("ERR: ReadyToFly: Could not read config");
+            Log("ERR: ReadyToBeacon: Could not read config");
         }
 
         if (cfg_.callsign == "")
         {
             retVal = false;
+            Log("ERR: ReadyToBeacon: Callsign blank");
+        }
 
-            Log("ERR: ReadyToFly: Callsign blank");
+        if (cfg_.slots.empty())
+        {
+            retVal = false;
+            Log("ERR: ReadyToBeacon: No slots configured");
         }
 
         return retVal;
     }
 
-    Configuration &GetConfiguration()
-    {
-        return cfg_;
-    }
+    Configuration &GetConfiguration() { return cfg_; }
 
     void Enable()
     {
         Log("TX Subsystem On");
         pinTxLoadSwitchOnOff_.DigitalWrite(0);
-
-        // Give it time to start up
         PAL.Delay(5);
-
         enabled_ = true;
     }
 
@@ -65,83 +61,97 @@ public:
     {
         Log("Radio on");
         wsprMessageTransmitter_.RadioOn();
-
         on_ = true;
     }
 
-    bool IsOn()
+    bool IsOn() { return on_; }
+
+    // Switch the transmitter timing to the WSPR variant for this slot
+    // (called per-slot by the scheduler so a mixed schedule transmits correctly).
+    // CW slots don't use this — they call SendCwMessage() instead.
+    void SetWsprMode(SlotMode mode)
     {
-        return on_;
+        if (mode == SlotMode::WSPR15)
+        {
+            wsprMessageTransmitter_.SetWsprMode(WSPRMessageTransmitter::WSPR15_TONE_SPACING_HUNDREDTHS_HZ,
+                                                WSPRMessageTransmitter::WSPR15_DELAY_US);
+        }
+        else if (mode == SlotMode::WSPR2)
+        {
+            wsprMessageTransmitter_.SetWsprMode(WSPRMessageTransmitter::WSPR2_TONE_SPACING_HUNDREDTHS_HZ,
+                                                WSPRMessageTransmitter::WSPR2_DELAY_US);
+        }
+        // SlotMode::CW: no-op, CW doesn't use WSPR symbol timing.
     }
 
-    void SetupTransmitterForCalibration()
+    // Set the transmitter to a raw frequency (CW use). Assumes RadioOn() has been called.
+    void SetupForCw(uint32_t freqHz)
     {
-        // unlike normal flight mode, this:
-        // - doesn't restore the saved settings (ephemeral settings used)
-        // - uses the dial frequency of the band + 1500 (for calibration simplicity)
-        WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(cfg_.band.c_str(), cfg_.channel);
-
-        Log("Setup Transmitter (Calibration mode)");
-        Log("Band: ", cfg_.band, ", Channel: ", cfg_.channel);
-        Log("Freq: ", Commas(cd.freqDial + 1500), ", Correction: ", cfg_.correction);
-        LogNL();
-
-        wsprMessageTransmitter_.SetFrequency(cd.freqDial + 1500);
+        Log("Setup Transmitter (CW): Freq=", Commas(freqHz));
+        wsprMessageTransmitter_.SetFrequency(freqHz);
         wsprMessageTransmitter_.SetCorrection(cfg_.correction);
     }
 
-    void SetupTransmitterForSlot(const string &band, uint16_t channel, int32_t correction)
+    // Send a CW message by keying the Si5351 output on/off according to the
+    // encoded element stream. Blocks until the message has been sent.
+    // Caller is responsible for having called Enable() + RadioOn() + SetupForCw().
+    void SendCwMessage(const string &text, uint8_t wpm)
+    {
+        Log("Sending CW: \"", text, "\" @ ", (int)wpm, " WPM (",
+            CwEncoder::EstimateDurationMs(text, wpm), " ms)");
+
+        auto events = CwEncoder::Encode(text, wpm);
+
+        // Start with the radio keyed off — RadioOn left it enabled, we'll
+        // toggle as the event stream dictates.
+        wsprMessageTransmitter_.Key(false);
+
+        for (const auto &ev : events)
+        {
+            Watchdog::Feed();
+            wsprMessageTransmitter_.Key(ev.keyOn);
+            PAL.DelayBusyUs((uint64_t)ev.durationMs * 1000);
+        }
+
+        // Leave radio in a known-off state after transmission.
+        wsprMessageTransmitter_.Key(false);
+        Log("CW sent");
+    }
+
+    // Set the transmitter to a slot's band+channel ahead of transmission.
+    void SetupForSlot(const string &band, uint16_t channel)
     {
         WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(band.c_str(), channel);
 
         Log("Setup Transmitter (Slot): Band=", band, " Ch=", channel, " Freq=", Commas(cd.freq));
 
         wsprMessageTransmitter_.SetFrequency(cd.freq);
-        wsprMessageTransmitter_.SetCorrection(correction);
-    }
-
-    void SetupTransmitterForFlight()
-    {
-        // make sure config is the stored version
-        if (cfg_.Get() == false)
-        {
-            Log("ERR: SetupTransmitterForFlight: Could not read config from flash (size mismatch or missing) -- send REQ_DELETE_CONFIG and reconfigure");
-            return;
-        }
-
-        WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(cfg_.band.c_str(), cfg_.channel);
-
-        Log("Setup Transmitter (Flight mode)");
-        Log("Band: ", cfg_.band, ", Channel: ", cfg_.channel);
-        Log("Freq: ", Commas(cd.freq), ", Correction: ", cfg_.correction);
-        LogNL();
-
-        wsprMessageTransmitter_.SetFrequency(cd.freq);
         wsprMessageTransmitter_.SetCorrection(cfg_.correction);
     }
 
-    void SetCallbackOnTxStart(function<void()> fn)
+    // Calibration: emit a stable tone at (band's dial freq + 1500 Hz) for tuning.
+    void SetupForCalibration(const string &band, uint16_t channel, int32_t correction)
     {
-        wsprMessageTransmitter_.SetCallbackOnTxStart(fn);
+        WsprChannelMap::ChannelDetails cd = WsprChannelMap::GetChannelDetails(band.c_str(), channel);
+
+        Log("Setup Transmitter (Calibration mode)");
+        Log("Band: ", band, ", Channel: ", channel);
+        Log("Freq: ", Commas(cd.freqDial + 1500), ", Correction: ", correction);
+        LogNL();
+
+        wsprMessageTransmitter_.SetFrequency(cd.freqDial + 1500);
+        wsprMessageTransmitter_.SetCorrection(correction);
     }
 
-    void SetCallbackOnBitChange(function<void()> fn)
-    {
-        wsprMessageTransmitter_.SetCallbackOnBitChange(fn);
-    }
-
-    void SetCallbackOnTxEnd(function<void()> fn)
-    {
-        wsprMessageTransmitter_.SetCallbackOnTxEnd(fn);
-    }
+    void SetCallbackOnTxStart(function<void()> fn)   { wsprMessageTransmitter_.SetCallbackOnTxStart(fn); }
+    void SetCallbackOnBitChange(function<void()> fn) { wsprMessageTransmitter_.SetCallbackOnBitChange(fn); }
+    void SetCallbackOnTxEnd(function<void()> fn)     { wsprMessageTransmitter_.SetCallbackOnTxEnd(fn); }
 
     void SetTxQuitAfterMs(uint64_t ms)
     {
         if (ms == 0)
         {
-            wsprMessageTransmitter_.SetQuitEarlyFunction([=](uint64_t msSinceStart){
-                return false;
-            });
+            wsprMessageTransmitter_.SetQuitEarlyFunction([](uint64_t){ return false; });
         }
         else
         {
@@ -151,7 +161,7 @@ public:
         }
     }
 
-    void SendRegularMessage(string callsign, string grid4, uint8_t powerDbm)
+    void SendRegularMessage(const string &callsign, const string &grid4, uint8_t powerDbm)
     {
         WsprMessageRegularType1 msg;
         msg.SetCallsign(callsign.c_str());
@@ -159,15 +169,8 @@ public:
         msg.SetPowerDbm(powerDbm);
 
         Log("Sending regular msg: ", msg.GetCallsign(), " ", msg.GetGrid4(), " ", msg.GetPowerDbm());
-        SendMessage(msg);
-        Log("Sent");
-    }
-
-    void SendMessage(const WsprMessageRegularType1 &msg)
-    {
-        Log("Transmitting WSPR Type1: ", msg.GetCallsign(), " ", msg.GetGrid4(), " ", msg.GetPowerDbm());
-
         wsprMessageTransmitter_.Send(msg.GetCallsign(), msg.GetGrid4(), msg.GetPowerDbm());
+        Log("Sent");
     }
 
     void RadioOff()
@@ -175,7 +178,6 @@ public:
         Log("Radio off");
         LogNL();
         wsprMessageTransmitter_.RadioOff();
-
         on_ = false;
     }
 
@@ -184,15 +186,36 @@ public:
         Log("TX Subsystem Off");
         LogNL();
         pinTxLoadSwitchOnOff_.DigitalWrite(1);
-
         enabled_ = false;
     }
 
 
 private:
 
+    void TestCwSend(uint32_t freqHz, uint8_t wpm, const string &text)
+    {
+        Timeline::Global().SetMaxEvents(50);
+        Timeline::Global().Reset();
+        Timeline::Global().Event("TestCwSend Start");
 
-    void TestWsprSend(string callsign, string grid, uint8_t powerDbm = 17)
+        bool enableCache = enabled_;
+        bool onCache = on_;
+
+        if (!enableCache) { Enable(); }
+        SetupForCw(freqHz);
+        if (!onCache) { RadioOn(); }
+
+        SendCwMessage(text, wpm);
+
+        if (!onCache) { RadioOff(); }
+        if (!enableCache) { Disable(); }
+
+        Timeline::Global().Event("TestCwSend End");
+        Timeline::Global().Report();
+    }
+
+    void TestWsprSend(const string &band, uint16_t channel, SlotMode mode,
+                      const string &callsign, const string &grid, uint8_t powerDbm = 13)
     {
         Timeline::Global().SetMaxEvents(300);
         Timeline::Global().Reset();
@@ -201,33 +224,16 @@ private:
         bool enableCache = enabled_;
         bool onCache = on_;
 
-        if (enableCache == false)
-        {
-            Enable();
-        }
-
-        SetupTransmitterForFlight();
-
-        if (onCache == false)
-        {
-            RadioOn();
-        }
+        if (!enableCache) { Enable(); }
+        SetWsprMode(mode);
+        SetupForSlot(band, channel);
+        if (!onCache) { RadioOn(); }
 
         Log("Sending");
         SendRegularMessage(callsign, grid, powerDbm);
-        Log("Sent");
 
-        if (onCache == false)
-        {
-            RadioOff();
-        }
-
-        SetupTransmitterForCalibration();
-
-        if (enableCache == false)
-        {
-            Disable();
-        }
+        if (!onCache) { RadioOff(); }
+        if (!enableCache) { Disable(); }
 
         Timeline::Global().Event("TestWsprSend End");
         Timeline::Global().Report();
@@ -235,10 +241,6 @@ private:
 
     void SetupShell()
     {
-        ///////////////////////////////////////////////////
-        // App WSPR testing
-        ///////////////////////////////////////////////////
-
         Shell::AddCommand("app.tx", [this](vector<string> argList){
             if (argList[0] == "on") { Enable();  }
             else                    { Disable(); }
@@ -251,105 +253,68 @@ private:
 
         Shell::AddCommand("app.wspr.quitms", [this](vector<string> argList){
             uint64_t quitMs = (uint64_t)atoi(argList[0].c_str());
-
-            if (quitMs == 0)
-            {
-                Log("WSPR quitms reset, will not quit early");
-
-                wsprMessageTransmitter_.SetQuitEarlyFunction([](uint64_t msSinceStart){
-                    return false;
-                });
-            }
-            else
-            {
-                Log("WSPR quitms set, will quit after ", Commas(quitMs), " ms");
-
-                wsprMessageTransmitter_.SetQuitEarlyFunction([=](uint64_t msSinceStart){
-                    bool retVal = false;
-
-                    if (msSinceStart >= quitMs)
-                    {
-                        retVal = true;
-
-                        Log("WSPR quitting early - ", Commas(msSinceStart), " ms elapsed, limit ", Commas(quitMs), " ms");
-                    }
-
-                    return retVal;
-                });
-            }
+            SetTxQuitAfterMs(quitMs);
         }, { .argCount = 1, .help = "quit wspr tx <ms> after tx start, 0 to clear"});
 
         Shell::AddCommand("app.wspr.send", [this](vector<string> argList){
-            string callsign = argList[0];
-            string grid = argList[1];
+            // band channel mode callsign grid
+            string  band     = argList[0];
+            uint16_t channel = (uint16_t)atoi(argList[1].c_str());
+            SlotMode mode    = (argList[2] == "15") ? SlotMode::WSPR15 : SlotMode::WSPR2;
+            string  callsign = argList[3];
+            string  grid     = argList[4];
+            TestWsprSend(band, channel, mode, callsign, grid);
+        }, { .argCount = 5, .help = "wspr send <band> <channel> <2|15> <callsign> <grid>"});
 
-            TestWsprSend(callsign, grid);
-        }, { .argCount = 2, .help = "wspr send <callsign> <grid>"});
+        Shell::AddCommand("app.cw.send", [this](vector<string> argList){
+            // freqHz wpm text...
+            uint32_t freqHz = (uint32_t)strtoul(argList[0].c_str(), nullptr, 10);
+            uint8_t  wpm    = (uint8_t)atoi(argList[1].c_str());
+            string   text;
+            for (size_t i = 2; i < argList.size(); ++i)
+            {
+                if (i > 2) text += " ";
+                text += argList[i];
+            }
+            TestCwSend(freqHz, wpm, text);
+        }, { .argCount = -1, .help = "cw send <freqHz> <wpm> <text...>"});
     }
 
     void SetupJSON()
     {
-        JSONMsgRouter::RegisterHandler("REQ_RADIO_POWER_ON", [this](auto &in, auto &out){
-            Log("REQ_RADIO_POWER_ON");
+        JSONMsgRouter::RegisterHandler("REQ_RADIO_POWER_ON",     [this](auto &, auto &){ Log("REQ_RADIO_POWER_ON");  Enable();  });
+        JSONMsgRouter::RegisterHandler("REQ_RADIO_POWER_OFF",    [this](auto &, auto &){ Log("REQ_RADIO_POWER_OFF"); Disable(); });
+        JSONMsgRouter::RegisterHandler("REQ_RADIO_OUTPUT_ENABLE",[this](auto &, auto &){ Log("REQ_RADIO_OUTPUT_ENABLE"); Enable(); RadioOn(); });
 
-            Enable();
-        });
-
-        JSONMsgRouter::RegisterHandler("REQ_RADIO_POWER_OFF", [this](auto &in, auto &out){
-            Log("REQ_RADIO_POWER_OFF");
-
-            Disable();
-        });
-
-        JSONMsgRouter::RegisterHandler("REQ_RADIO_OUTPUT_ENABLE", [this](auto &in, auto &out){
-            Log("REQ_RADIO_OUTPUT_ENABLE");
-
-            Enable();
-            RadioOn();
-        });
-
-        JSONMsgRouter::RegisterHandler("REQ_RADIO_OUTPUT_DISABLE", [this](auto &in, auto &out){
+        JSONMsgRouter::RegisterHandler("REQ_RADIO_OUTPUT_DISABLE", [this](auto &, auto &){
             Log("REQ_RADIO_OUTPUT_DISABLE");
-
-            if (enabled_)
-            {
-                RadioOff();
-            }
+            if (enabled_) { RadioOff(); }
         });
 
-        // interactive control -- does not commit to saved state
-        JSONMsgRouter::RegisterHandler("REQ_SET_CONFIG_TEMP", [this](auto &in, auto &out){
+        // interactive calibration (USB only) - does not commit to flash
+        JSONMsgRouter::RegisterHandler("REQ_SET_CONFIG_TEMP", [this](auto &in, auto &){
             Log("REQ_SET_CONFIG_TEMP");
-
-            string band = (string)in["band"];
-            uint16_t channel = (uint16_t)in["channel"];
+            string  band       = (const char *)in["band"];
+            uint16_t channel   = (uint16_t)(int)in["channel"];
             int32_t correction = (int32_t)in["correction"];
-
-            cfg_.band       = band;
-            cfg_.channel    = channel;
-            cfg_.correction = correction;
-
-            SetupTransmitterForCalibration();
-        });
-
-        JSONMsgRouter::RegisterHandler("REQ_RESTORE_CONFIG", [this](auto &in, auto &out){
-            Log("REQ_RESTORE_CONFIG");
-
-            SetupTransmitterForFlight();
+            SetupForCalibration(band, channel, correction);
         });
 
         JSONMsgRouter::RegisterHandler("REQ_WSPR_SEND", [this](auto &in, auto &out){
             out["type"] = "REP_WSPR_SEND";
-
             Log("REQ_WSPR_SEND");
 
-            string callsign  = (const char *)in["callsign"];
-            string grid      = (const char *)in["grid"];
-            uint8_t powerDbm = (uint8_t)in["power"];
+            string  band     = in.containsKey("band") ? (const char *)in["band"] : string("20m");
+            uint16_t channel = in.containsKey("channel") ? (uint16_t)(int)in["channel"] : 0;
+            SlotMode mode    = (in.containsKey("mode") && (int)in["mode"] == 1) ? SlotMode::WSPR15 : SlotMode::WSPR2;
+            string  callsign = (const char *)in["callsign"];
+            string  grid     = (const char *)in["grid"];
+            uint8_t powerDbm = (uint8_t)(int)in["power"];
 
-            Log("callsign: ", callsign, ", grid: ", grid, ", powerDbm: ", powerDbm);
+            Log("band: ", band, ", channel: ", channel, ", mode: ", (int)mode,
+                ", callsign: ", callsign, ", grid: ", grid, ", powerDbm: ", powerDbm);
 
-            TestWsprSend(callsign, grid, powerDbm);
+            TestWsprSend(band, channel, mode, callsign, grid, powerDbm);
         });
     }
 
