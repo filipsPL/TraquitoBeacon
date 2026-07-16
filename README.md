@@ -2,7 +2,11 @@
 
 This is a modification of the [Traquito Jetpack WSPR tracker](https://traquito.github.io/tracker/) firmware that turns the same low-cost jetpack hardware into a **mixed-mode HF ground-station beacon**. The code is experimental.
 
-Disclaimer: most of the code modifications have been vibe-coded using Claude Code.
+> [!WARNING]  
+> To use this beacon (the hardware and firmware) to send messages, you need a valid amateur radio operator licence.
+
+> [!NOTE]  
+> Disclaimer: most of the code modifications have been vibe-coded using Claude Code.
 
 ## About the original code
 
@@ -12,7 +16,14 @@ That (and this) project relies heavily on [picoinf](https://github.com/dmalnati/
 
 # This fork — summary of changes
 
-- **Mixed-mode sequential slot scheduling** — configure an ordered list of up to 24 transmission slots. Each slot independently picks **WSPR-2** (2-minute window), **WSPR-15** (15-minute window), **CW** (fires immediately after the previous slot ends), or **IDLE** (waits N minutes, no transmission). Slots fire back-to-back; the scheduler computes the next valid UTC-aligned window for each slot's mode so a mixed schedule "just works".
+- **Mixed-mode sequential slot scheduling** — configure an ordered list of up to 24 transmission slots. Each slot independently picks:
+  - **WSPR-2** (2-minute window),
+  - **WSPR-15** (15-minute window),
+  - **CW** (fires immediately after the previous slot ends),
+  - **IDLE** (waits N minutes, no transmission). Slots fire back-to-back; the scheduler computes the next valid UTC-aligned window for each slot's mode so a mixed schedule "just works".
+
+List of the features include:
+
 - **IDLE slot** — reserves a configurable wait (1–10080 minutes) on the schedule with no transmission and no radio/GPS activity. Useful for spacing cycles out (e.g. transmit, then go quiet for an hour) without the whole-cycle granularity of `txInterval`. Software-only — it does not put the microcontroller itself to sleep.
 - **CW beacon mode** — CW slots auto-generate a K5RWK/B-style beacon message (`VVV DE {call}/B {grid} × 3`) for Reverse Beacon Network spotting. Per-slot frequency (Hz) and WPM are configurable. Fast Si5351 output-enable keying keeps transitions in ~50 µs.
 - **Per-slot UTC alignment** — the scheduler always lands WSPR transmissions on the correct boundary for the slot's mode (even minutes for WSPR-2, multiples of 15 for WSPR-15). CW slots fire immediately with no alignment gap.
@@ -24,7 +35,7 @@ That (and this) project relies heavily on [picoinf](https://github.com/dmalnati/
 - **Less frequent temperature reading** — polled every 30 seconds instead of every second.
 - **`config.html`** — local web page to configure the beacon over Web Serial (Chrome/Edge 89+).
 
-## Use pre-compiled binaries
+## Use pre-compiled binaries (quick start)
 
 Pre-compiled `.uf2` binaries are published in releases: <https://github.com/filipsPL/TraquitoBeacon/releases/>
 
