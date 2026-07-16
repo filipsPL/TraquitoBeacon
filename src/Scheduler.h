@@ -14,9 +14,10 @@ using namespace std;
 #include "TimeClass.h"
 #include "Timeline.h"
 #include "Utl.h"
+#include "WSPRMessageTransmitter.h"
 
 
-enum class SlotMode : uint8_t { WSPR2 = 0, WSPR15 = 1, CW = 2 };
+enum class SlotMode : uint8_t { WSPR2 = 0, WSPR15 = 1, CW = 2, IDLE = 3 };
 
 
 class Scheduler
@@ -35,18 +36,20 @@ public:
         // needing to peek at Configuration / Morse encoder internals.
         uint32_t cwDurationMs = 0;
         string   cwText  = "";
+        uint32_t idleMinutes = 0;      // IDLE-only: how long to wait, no transmission
     };
 
-    static constexpr uint8_t SLOT_MAX = 16;
+    static constexpr uint8_t SLOT_MAX = 24;
 
     // Alignment requirement (UTC minutes) for the slot's mode.
-    // WSPR-2 → 2-min windows; WSPR-15 → 15-min windows; CW → no alignment (0).
+    // WSPR-2 → 2-min windows; WSPR-15 → 15-min windows; CW/IDLE → no alignment (0).
     static uint8_t AlignmentMinutes(SlotMode m)
     {
         switch (m)
         {
             case SlotMode::WSPR15: return 15;
             case SlotMode::CW:     return 0;
+            case SlotMode::IDLE:   return 0;
             case SlotMode::WSPR2:
             default:               return 2;
         }
@@ -55,6 +58,7 @@ public:
     // Duration the scheduler should reserve for this slot.
     // WSPR: fixed period (2 or 15 minutes).
     // CW: actual transmission time + a small padding for setup/teardown.
+    // IDLE: exactly the configured wait, no transmission occurs.
     static uint64_t SlotDurationUs(const Slot &s)
     {
         if (s.mode == SlotMode::CW)
@@ -62,7 +66,32 @@ public:
             const uint64_t CW_PAD_US = 1'000'000ULL;  // 1 s pad after the last element
             return (uint64_t)s.cwDurationMs * 1000ULL + CW_PAD_US;
         }
+        if (s.mode == SlotMode::IDLE)
+        {
+            return (uint64_t)s.idleMinutes * 60ULL * 1'000'000ULL;
+        }
         return (uint64_t)AlignmentMinutes(s.mode) * 60ULL * 1'000'000ULL;
+    }
+
+    // When the slot's transmission is actually over, as opposed to when its
+    // reserved window ends. A WSPR transmission is 162 symbols, which finishes
+    // well before the window closes (WSPR-2: ~110.6 s of 120 s; WSPR-15:
+    // ~884.8 s of 900 s) - a following back-to-back slot can use that tail for
+    // radio warmup instead of getting none. The margin covers message encode
+    // time, the final symbol's trailing delay, and teardown. Non-WSPR slots
+    // occupy their whole reserved duration (IDLE deliberately so: it promises
+    // no radio activity for the full idle period).
+    static uint64_t SlotActiveUs(const Slot &s)
+    {
+        if (s.mode == SlotMode::WSPR2 || s.mode == SlotMode::WSPR15)
+        {
+            uint64_t delayUs = s.mode == SlotMode::WSPR15
+                             ? WSPRMessageTransmitter::WSPR15_DELAY_US
+                             : WSPRMessageTransmitter::WSPR2_DELAY_US;
+            const uint64_t TX_TAIL_MARGIN_US = 2'000'000ULL;
+            return (uint64_t)WSPRMessageTransmitter::WSPR_SYMBOL_COUNT * delayUs + TX_TAIL_MARGIN_US;
+        }
+        return SlotDurationUs(s);
     }
 
 
@@ -83,12 +112,14 @@ public:
         if (slots_.size() > SLOT_MAX) { slots_.resize(SLOT_MAX); }
 
         // Rebuild per-slot timers (unique_ptr, Timers are non-movable).
-        timerSlotNames_.clear();
+        // Destroy the Timers before the name strings they hold c_str()
+        // pointers into.
         timerSlotVec_.clear();
-        timerWarmupNames_.clear();
+        timerSlotNames_.clear();
         timerWarmupVec_.clear();
-        timerPreNotifyNames_.clear();
+        timerWarmupNames_.clear();
         timerPreNotifyVec_.clear();
+        timerPreNotifyNames_.clear();
         // Reserve before pushing so string storage never relocates while
         // earlier Timers still hold c_str() pointers into it.
         timerSlotNames_.reserve(slots_.size());
@@ -182,6 +213,8 @@ public:
         if (!running_) { return; }
         uint64_t timeNowUs = fix.timeAtPpsUs;
 
+        if (reqGpsActive_) { lastGpsSyncUs_ = timeNowUs; }
+
         if (reqGpsActive_ && !inLockout_)
         {
             Mark("ON_GPS_LOCK_TIME_APPLIED");
@@ -202,6 +235,8 @@ public:
     {
         if (!running_) { return; }
         uint64_t timeNowUs = fix.timeAtPpsUs;
+
+        if (reqGpsActive_) { lastGpsSyncUs_ = timeNowUs; }
 
         if (reqGpsActive_ && !inLockout_)
         {
@@ -283,10 +318,11 @@ private:
     // immediate for CW since it has no UTC alignment requirement).
     static uint64_t ComputeAlignDeltaUs(SlotMode mode, uint8_t notMin, uint8_t notSec, uint32_t notUs)
     {
-        // CW: no UTC alignment — fire as soon as the previous slot ends.
-        if (mode == SlotMode::CW) { return 0; }
-
+        // CW/IDLE: no UTC alignment — fire as soon as the previous slot ends.
+        // (AlignmentMinutes returns 0 for these; guard on it so the modulo
+        // below can never divide by zero.)
         uint8_t align = AlignmentMinutes(mode);
+        if (align == 0) { return 0; }
 
         int minDiff = (int)(align - (notMin % align));
         if (minDiff == align) { minDiff = 0; }
@@ -371,6 +407,22 @@ private:
         }
 
         ScheduleApplyCache();
+
+        // Periodic GPS resync: notional time otherwise coasts on the MCU
+        // crystal (~20-30 ppm, roughly 2-3 s/day of drift) and WSPR decoders
+        // only tolerate ~±2 s of start-time error. Re-request a time fix once
+        // the last fresh fix is old enough. A fix arriving mid-cycle is cached
+        // and applied at the next lockout end; if no fix arrives before the
+        // coast timer fires, the request is canceled there and retried at the
+        // end of the next cycle.
+        const uint64_t GPS_RESYNC_INTERVAL_US = 6ULL * 60 * 60 * 1'000'000;  // 6 hours
+        if (!reqGpsActive_ && PAL.Micros() - lastGpsSyncUs_ >= GPS_RESYNC_INTERVAL_US)
+        {
+            Mark("GPS_RESYNC");
+            Log("GPS: last time sync > 6 h old - requesting resync");
+            RequestNewGpsLock();
+        }
+
         LogNL();
     }
 
@@ -439,7 +491,10 @@ private:
                 LogNL();
             });
 
-            const uint64_t COAST_LEAD_US = 7 * 1'000'000;
+            // Must exceed the 30 s radio warmup (plus scheduling overhead) —
+            // in steady state every cycle is scheduled from this coast timer,
+            // so its lead time caps how much warmup the first slot can get.
+            const uint64_t COAST_LEAD_US = 35 * 1'000'000;
             uint64_t timeNowUs;
             uint64_t timeAtNextCycleStartHintUs = GetNextCycleStartHintUs(&timeNowUs);
             uint64_t timeAtTriggerCoastUs = timeAtNextCycleStartHintUs
@@ -545,15 +600,24 @@ private:
         // Warmup + fire timers per slot.
         for (size_t i = 0; i < slots_.size(); ++i)
         {
-            uint64_t prevEndUs = (i == 0) ? timeNowUs : (fireAtUs[i - 1] + SlotDurationUs(slots_[i - 1]));
+            uint64_t prevEndUs = (i == 0) ? timeNowUs : (fireAtUs[i - 1] + SlotActiveUs(slots_[i - 1]));
             uint64_t availWarmupUs = (fireAtUs[i] > prevEndUs) ? (fireAtUs[i] - prevEndUs) : 0;
             uint64_t warmupUs = min(WARMUP_US, availWarmupUs);
             uint64_t warmupAtUs = fireAtUs[i] - warmupUs;
 
-            timerWarmupVec_[i]->SetCallback([this, i]{
-                string s = "WARMUP_" + to_string(i + 1);
+            Slot slot = slots_[i];
+            uint8_t slot1 = (uint8_t)(i + 1);
+
+            timerWarmupVec_[i]->SetCallback([this, slot1, slot]{
+                if (slot.mode == SlotMode::IDLE) { return; }
+                string s = "WARMUP_" + to_string(slot1);
                 Mark(s.c_str());
                 fnCbGoHighSpeed_();
+                // Prepare (frequency + mode) before the radio comes on so the
+                // warmup carrier is emitted at this slot's frequency, not
+                // whatever frequency the previous slot (or power-on default)
+                // left the transmitter tuned to.
+                if (fnCbPrepareSlot_) { fnCbPrepareSlot_(slot1, slot); }
                 if (!fnCbRadioIsActive_()) { fnCbStartRadioWarmup_(); }
             });
             timerWarmupVec_[i]->TimeoutAtUs(warmupAtUs);
@@ -563,8 +627,6 @@ private:
             const uint64_t PRENOTIFY_US = 1ULL * 1'000'000ULL;
             uint64_t preNotifyAtUs = fireAtUs[i] - min(PRENOTIFY_US, availWarmupUs);
 
-            Slot slot = slots_[i];
-            uint8_t slot1 = (uint8_t)(i + 1);
             timerPreNotifyVec_[i]->SetCallback([this, slot1, slot]{
                 fnCbAnnounceSlot_(slot1, slot);
             });
@@ -573,19 +635,28 @@ private:
             timerSlotVec_[i]->SetCallback([this, slot1, slot]{
                 string s = "SLOT_" + to_string(slot1) + "_FIRE";
                 Mark(s.c_str());
-                if (fnCbPrepareSlot_) { fnCbPrepareSlot_(slot1, slot); }
-                if (fnCbSendSlot_)    { fnCbSendSlot_(slot1, slot); }
-                fnCbStopRadio_();
+                if (slot.mode == SlotMode::IDLE)
+                {
+                    // No radio ever started for an idle slot - just report it.
+                    if (fnCbSendSlot_) { fnCbSendSlot_(slot1, slot); }
+                }
+                else
+                {
+                    if (fnCbPrepareSlot_) { fnCbPrepareSlot_(slot1, slot); }
+                    if (fnCbSendSlot_)    { fnCbSendSlot_(slot1, slot); }
+                    fnCbStopRadio_();
+                }
             });
             timerSlotVec_[i]->TimeoutAtUs(fireAtUs[i]);
 
             const char *modeName = slot.mode == SlotMode::WSPR15 ? "WSPR-15"
                                  : slot.mode == SlotMode::CW     ? "CW     "
+                                 : slot.mode == SlotMode::IDLE   ? "IDLE   "
                                  :                                 "WSPR-2 ";
             Log("Slot ", slot1, " (", modeName,
-                ", ", slot.band, slot.mode == SlotMode::CW
-                    ? string{" @ "} + to_string(slot.frequencyHz) + " Hz"
-                    : string{" ch "} + to_string(slot.channel),
+                ", ", slot.band, slot.mode == SlotMode::CW    ? string{" @ "} + to_string(slot.frequencyHz) + " Hz"
+                                : slot.mode == SlotMode::IDLE  ? string{" for "} + to_string(slot.idleMinutes) + " min"
+                                :                                string{" ch "} + to_string(slot.channel),
                 "): warmup ", TimeAt(warmupAtUs), ", fire ", TimeAt(fireAtUs[i]));
         }
 
@@ -718,6 +789,10 @@ private:
 
     uint8_t txInterval_  = 1;
     uint8_t skipCounter_ = 0;
+
+    // System time (PAL.Micros) of the last fresh GPS fix accepted while a
+    // request was active - drives the periodic resync in OnScheduleLockoutEnd.
+    uint64_t lastGpsSyncUs_ = 0;
 
     function<void()>             fnCbRequestNewGpsLock_       = []{};
     function<void()>             fnCbCancelRequestNewGpsLock_ = []{};

@@ -115,7 +115,7 @@
             <th>#</th>
             <th>Mode</th>
             <th>Band</th>
-            <th>Ch / Freq (Hz)</th>
+            <th>Ch / Freq / Min</th>
             <th>WPM</th>
             <th>Fires at</th>
             <th></th>
@@ -189,14 +189,14 @@
 
 <script>
 // ── Slot model (in-memory; rendered into the table) ──────────────────────────
-//   mode: 0 = WSPR-2, 1 = WSPR-15, 2 = CW
-const SLOT_MAX = 16;
-let slotList = [];   // [{ mode, band, channel, frequencyHz, wpm }]
+//   mode: 0 = WSPR-2, 1 = WSPR-15, 2 = CW, 3 = IDLE
+const SLOT_MAX = 24;
+let slotList = [];   // [{ mode, band, channel, frequencyHz, wpm, idleMinutes }]
 
-// Alignment in minutes (CW = 0, fires immediately after previous slot ends).
+// Alignment in minutes (CW/IDLE = 0, fires immediately after previous slot ends).
 function alignmentMin(mode) {
-  if (mode === 2) return 0;     // CW
-  return mode === 1 ? 15 : 2;   // WSPR-15 or WSPR-2
+  if (mode === 2 || mode === 3) return 0;  // CW, IDLE
+  return mode === 1 ? 15 : 2;              // WSPR-15 or WSPR-2
 }
 
 // Estimate CW beacon transmission time in seconds.
@@ -225,7 +225,7 @@ function cwBeaconDurationSec(wpm, call, grid) {
   return Math.ceil(units * dit / 1000);
 }
 
-// Slot duration in seconds (CW uses computed length, WSPR uses 120/900 s).
+// Slot duration in seconds (CW uses computed length, WSPR uses 120/900 s, IDLE is configured).
 function slotDurationSec(s) {
   if (s.mode === 2) {
     const wpm  = s.wpm || 18;
@@ -233,6 +233,7 @@ function slotDurationSec(s) {
     const grid = (document.getElementById('cfgGrid')?.value || '').trim() || 'GRID';
     return cwBeaconDurationSec(wpm, call, grid) + 1;  // +1 s pad matches firmware
   }
+  if (s.mode === 3) return (s.idleMinutes || 1) * 60;
   return s.mode === 1 ? 900 : 120;
 }
 
@@ -280,8 +281,11 @@ function renderSlots() {
     const tr = document.createElement('tr');
     const f = fires[i];
     const isCw = s.mode === 2;
+    const isIdle = s.mode === 3;
     const chOrFreqCell = isCw
       ? `<input data-i="${i}" data-k="frequencyHz" type="number" min="1000000" max="30000000" step="1" value="${s.frequencyHz || 14025000}" title="CW transmit frequency (Hz)">`
+      : isIdle
+      ? `<input data-i="${i}" data-k="idleMinutes" type="number" min="1" max="10080" step="1" value="${s.idleMinutes || 5}" title="Idle duration (minutes) - no transmission">`
       : `<input data-i="${i}" data-k="channel" type="number" min="0" max="599" value="${s.channel || 0}">`;
     const wpmCell = isCw
       ? `<input data-i="${i}" data-k="wpm" type="number" min="5" max="40" value="${s.wpm || 18}">`
@@ -292,8 +296,9 @@ function renderSlots() {
          <option value="0"${s.mode === 0 ? ' selected' : ''}>WSPR-2</option>
          <option value="1"${s.mode === 1 ? ' selected' : ''}>WSPR-15</option>
          <option value="2"${s.mode === 2 ? ' selected' : ''}>CW</option>
+         <option value="3"${s.mode === 3 ? ' selected' : ''}>IDLE</option>
        </select></td>` +
-      `<td><input data-i="${i}" data-k="band" type="text" maxlength="4" value="${s.band || ''}" placeholder="20m"></td>` +
+      `<td>${isIdle ? '<span style="color:#555">—</span>' : `<input data-i="${i}" data-k="band" type="text" maxlength="4" value="${s.band || ''}" placeholder="20m">`}</td>` +
       `<td>${chOrFreqCell}</td>` +
       `<td>${wpmCell}</td>` +
       `<td class="fires">${fmtMinSec(f.minute, f.second)}</td>` +
@@ -330,6 +335,7 @@ function onSlotFieldChange(e) {
   else if (k === 'channel') slotList[i].channel     = parseInt(e.target.value, 10) || 0;
   else if (k === 'frequencyHz') slotList[i].frequencyHz = parseInt(e.target.value, 10) || 0;
   else if (k === 'wpm')     slotList[i].wpm         = parseInt(e.target.value, 10) || 18;
+  else if (k === 'idleMinutes') slotList[i].idleMinutes = parseInt(e.target.value, 10) || 0;
   else                      slotList[i][k]          = e.target.value;
   // mode change adds/removes columns → full rerender; other field edits just update timing preview.
   if (k === 'mode') renderSlots();
@@ -362,7 +368,7 @@ function onSlotAction(e) {
 
 document.getElementById('btnAddSlot').addEventListener('click', () => {
   if (slotList.length >= SLOT_MAX) return;
-  slotList.push({ mode: 0, band: '20m', channel: 0, frequencyHz: 14025000, wpm: 18 });
+  slotList.push({ mode: 0, band: '20m', channel: 0, frequencyHz: 14025000, wpm: 18, idleMinutes: 5 });
   renderSlots();
 });
 
@@ -469,11 +475,12 @@ function handleLine(line) {
       if (obj.txInterval !== undefined) document.getElementById('cfgTxInterval').value = obj.txInterval;
       if (Array.isArray(obj.slots)) {
         slotList = obj.slots.map(s => ({
-          mode:        s.mode === 2 ? 2 : (s.mode === 1 ? 1 : 0),
+          mode:        s.mode === 3 ? 3 : (s.mode === 2 ? 2 : (s.mode === 1 ? 1 : 0)),
           band:        s.band || '',
           channel:     s.channel | 0,
           frequencyHz: (s.frequencyHz | 0) || 14025000,
           wpm:         (s.wpm | 0) || 18,
+          idleMinutes: (s.idleMinutes | 0) || 5,
         }));
         renderSlots();
       }
@@ -568,6 +575,7 @@ btnSetConfig.addEventListener('click', () => {
       channel:     parseInt(s.channel, 10) || 0,
       frequencyHz: parseInt(s.frequencyHz, 10) || 0,
       wpm:         parseInt(s.wpm, 10) || 18,
+      idleMinutes: parseInt(s.idleMinutes, 10) || 0,
     })),
   });
 });

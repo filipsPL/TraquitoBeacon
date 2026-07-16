@@ -80,7 +80,13 @@ public:
 
         if (testCfg.enabled == false || (testCfg.enabled && testCfg.watchdogOn == true))
         {
-            Watchdog::SetTimeout(5'000);
+            // Must exceed WSPRMessageTransmitter::WSPR15_DELAY_US (~5.46 s/symbol).
+            // The watchdog is fed once per WSPR symbol via SetCallbackOnBitChange,
+            // right before a blocking busy-wait for the symbol's full delay - the
+            // Evm loop never runs during that wait, so nothing else can feed it.
+            // At 5000ms, the very first WSPR-15 symbol of every transmission
+            // overran the timeout and reset the MCU mid-symbol.
+            Watchdog::SetTimeout(7'000);
             Watchdog::Start();
             Log("Watchdog enabled");
             LogNL();
@@ -208,17 +214,38 @@ public:
         if (enableBlink) { BlinkerIdle(); }
 
         auto TryStartScheduler = [this]{
-            if (!schedulerStarted_ && ssTx_.ReadyToBeacon())
+            if (!ssTx_.ReadyToBeacon()) { return; }
+
+            if (!schedulerStarted_)
             {
                 schedulerStarted_ = true;
                 Log("Config mode: callsign+slots valid, starting scheduler");
                 SetupScheduler();
             }
+            else
+            {
+                // Live reconfiguration: a REQ_SET_CONFIG arrived while the
+                // scheduler was already running. Stop cancels all armed
+                // timers and any pending GPS request cleanly; Start()
+                // re-requests a fresh GPS lock and reschedules from the
+                // newly-applied slot list. Without this, REP_SET_CONFIG
+                // would report success while the device kept transmitting
+                // whatever slot list was active at first boot.
+                Log("Config mode: config changed while running, reapplying");
+                scheduler_.Stop();
+                ApplySlotsToScheduler();
+                scheduler_.Start();
+            }
         };
         TryStartScheduler();
 
-        JSONMsgRouter::RegisterHandler("REQ_SET_CONFIG", [TryStartScheduler](auto &, auto &){
-            TryStartScheduler();
+        // Registered after Configuration's REQ_SET_CONFIG handler; the router
+        // calls handlers in registration order against the same reply object,
+        // so out["ok"] is already filled in here. A rejected config must not
+        // restart the scheduler (which would abort the in-flight cycle just
+        // to reapply the unchanged slot list).
+        JSONMsgRouter::RegisterHandler("REQ_SET_CONFIG", [TryStartScheduler](auto &, auto &out){
+            if (out["ok"] == true) { TryStartScheduler(); }
         });
     }
 
@@ -273,6 +300,10 @@ public:
                     Log("  [", i + 1, "] CW      ",
                         s.band, " @ ", Commas(s.frequencyHz), " Hz, ", (int)s.wpm, " WPM");
                 }
+                else if (s.mode == SlotMode::IDLE)
+                {
+                    Log("  [", i + 1, "] IDLE     ", s.idleMinutes, " min (no transmission)");
+                }
                 else
                 {
                     auto cd = WsprChannelMap::GetChannelDetails(s.band.c_str(), s.channel);
@@ -312,9 +343,11 @@ public:
         return out;
     }
 
-    void SetupScheduler()
+    // Push the current Configuration's slot list into the (possibly already
+    // running) scheduler. Safe to call again after REQ_SET_CONFIG as long as
+    // the scheduler is stopped first - see TryStartScheduler.
+    void ApplySlotsToScheduler()
     {
-        // Push slot list into the scheduler from current config.
         const Configuration &txCfg = ssTx_.GetConfiguration();
         vector<Scheduler::Slot> slots;
         slots.reserve(txCfg.slots.size());
@@ -326,6 +359,7 @@ public:
             ss.channel     = s.channel;
             ss.frequencyHz = s.frequencyHz;
             ss.wpm         = s.wpm;
+            ss.idleMinutes = s.idleMinutes;
             if (s.mode == SlotMode::CW)
             {
                 ss.cwText       = BuildCwBeaconMessage(txCfg.callsign, txCfg.grid);
@@ -335,6 +369,11 @@ public:
         }
         scheduler_.SetSlots(slots);
         scheduler_.SetTxInterval(txCfg.txInterval);
+    }
+
+    void SetupScheduler()
+    {
+        ApplySlotsToScheduler();
 
         SetupSchedulerGps();
         SetupSchedulerRadio();
@@ -444,6 +483,13 @@ public:
             BlinkerIdle();
             ssGps_.Disable();
 
+            // The GPS request is over (fix obtained, coast fired, or window
+            // expired) - the lock-or-die timer must not outlive it. Without
+            // this, a periodic resync attempt that gets coast-canceled before
+            // a fix arrives would leave the timer armed and panic-reset the
+            // device mid-cycle 20 minutes later.
+            CancelGpsLockOrDieTimer();
+
             if (gotFix3dPlus_)
             {
                 Log("GPS: off — 3D fix was obtained, grid=", fix3dPlus_.maidenheadGrid);
@@ -468,7 +514,14 @@ public:
             const Configuration &txCfg = ssTx_.GetConfiguration();
             const char *proto = s.mode == SlotMode::WSPR15 ? "WSPR-15"
                               : s.mode == SlotMode::CW     ? "CW"
+                              : s.mode == SlotMode::IDLE   ? "IDLE"
                               :                              "WSPR-2";
+            // Must outlive the router_.Send() call below: JSONMsgRouter::Send
+            // stores raw c_str() pointers into the JSON doc and only reads
+            // them back (measureJson/Serialize) after the handler lambda
+            // returns. A string declared inside that handler would already
+            // be destroyed by then, leaving a dangling pointer.
+            string grid4 = txCfg.grid.size() >= 4 ? txCfg.grid.substr(0, 4) : "";
             router_.Send([&](auto &out){
                 out["type"]     = "TX_START";
                 out["slot"]     = slot1;
@@ -479,11 +532,14 @@ public:
                     out["freqHz"] = s.frequencyHz;
                     out["wpm"]    = s.wpm;
                 }
+                else if (s.mode == SlotMode::IDLE)
+                {
+                    out["idleMinutes"] = s.idleMinutes;
+                }
                 else
                 {
                     out["channel"]  = s.channel;
                     out["callsign"] = txCfg.callsign.c_str();
-                    string grid4 = txCfg.grid.size() >= 4 ? txCfg.grid.substr(0, 4) : "";
                     out["grid"]     = grid4.c_str();
                     out["gps"]      = gotFix3dPlus_;
                     out["gpsTime"]  = lastGpsTime_.c_str();
@@ -508,10 +564,14 @@ public:
             }
         });
 
-        scheduler_.SetCallbackSendSlot([this](uint8_t /*slot1*/, const Scheduler::Slot &s){
+        scheduler_.SetCallbackSendSlot([this](uint8_t slot1, const Scheduler::Slot &s){
             if (s.mode == SlotMode::CW)
             {
                 SendCw(s.cwText, s.wpm);
+            }
+            else if (s.mode == SlotMode::IDLE)
+            {
+                Log("Slot ", slot1, ": idle for ", s.idleMinutes, " min (no transmission)");
             }
             else
             {
@@ -519,6 +579,7 @@ public:
             }
             const char *proto = s.mode == SlotMode::WSPR15 ? "WSPR-15"
                               : s.mode == SlotMode::CW     ? "CW"
+                              : s.mode == SlotMode::IDLE   ? "IDLE"
                               :                              "WSPR-2";
             router_.Send([&](auto &out){
                 out["type"]     = "TX_DONE";
@@ -575,6 +636,12 @@ public:
 
     void StartGpsLockOrDieTimer()
     {
+        // Beacon mode only. Config mode is interactive - the scheduler runs
+        // there for observation, and a bench without GPS reception must not
+        // panic-reboot the device out from under the USB console every
+        // 20 minutes. Autonomous recovery is only wanted when unattended.
+        if (configurationMode_) { return; }
+
         static const uint32_t TWENTY_MINUTES_MS = 20 * 60 * 1'000;
 
         timerGpsLockOrDie_.SetName("TIMER_GPS_LOCK_OR_DIE");
@@ -676,11 +743,14 @@ private:
         ssGps_.ModulePowerOff();
         Watchdog::Feed();
 
+        // Exercise the TX rail load switch only - deliberately no RadioOn():
+        // that would radiate ~1 s of carrier at the transmitter's power-on
+        // default frequency (14.097 MHz, inside the 20m WSPR sub-band) on
+        // every boot, regardless of configuration or fitted filter. The
+        // un-initialized Si5351 keeps its outputs powered down.
         ssTx_.Enable();
-        ssTx_.RadioOn();
         PAL.Delay(1'000);
         blinker_.Blink(1, 500, 100);
-        ssTx_.RadioOff();
         ssTx_.Disable();
         Watchdog::Feed();
 
